@@ -1,16 +1,19 @@
-use crate::{block::Block, types::{ByteSerialize, Bytes}};
+use crate::{
+    block::Block,
+    types::{ByteSerialize, Bytes},
+};
 
 #[derive(Debug, Clone)]
 pub struct Blockchain {
     difficaulty: u8,
-    blocks: Vec<Block>
+    blocks: Vec<Block>,
 }
 
 impl Blockchain {
     pub fn new() -> Self {
         Self {
             difficaulty: 3,
-            blocks: vec![Block::genesis()]
+            blocks: vec![Block::genesis()],
         }
     }
 
@@ -30,7 +33,6 @@ impl ByteSerialize for Blockchain {
         todo!()
     }
     fn from_bytes(bytes: Bytes) -> Self {
-       todo!() 
+        todo!()
     }
 }
-

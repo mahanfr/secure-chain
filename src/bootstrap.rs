@@ -2,13 +2,12 @@ use core::fmt;
 use std::fs::File;
 
 use serde_json::Value;
-use uuid::Uuid;
 
 use crate::log_error;
 
 #[derive(Debug, Clone)]
 pub struct Node {
-    id: Uuid,
+    #[allow(dead_code)]
     public_key: String,
     adress: String,
     port: u16,
@@ -19,7 +18,9 @@ impl Node {
             return Err(ParseError::MissingScheme);
         }
 
-        let parsable = uri.strip_prefix("peer://").ok_or(ParseError::MissingScheme)?;
+        let parsable = uri
+            .strip_prefix("peer://")
+            .ok_or(ParseError::MissingScheme)?;
 
         let at_pos = parsable.find('@').ok_or(ParseError::MissingAtSign)?;
         let (pk, mut addr_port) = parsable.split_at(at_pos);
@@ -55,8 +56,7 @@ impl Node {
             .parse::<u16>()
             .map_err(|_| ParseError::InvalidPort)?;
 
-        Ok(Self{
-            id: Uuid::new_v4(),
+        Ok(Self {
             public_key: pk.to_string(),
             adress: host_str.to_string(),
             port,
@@ -64,22 +64,21 @@ impl Node {
     }
 
     pub fn addr(&self) -> String {
-        format!("{}:{}",self.adress, self.port)
+        format!("{}:{}", self.adress, self.port)
     }
 }
 
 pub fn read_nodes_list(file_path: impl ToString) -> Vec<Node> {
     let file = File::open(file_path.to_string())
         .expect("Can not find network starting nodes configuration file");
-    let json: Value = serde_json::from_reader(file)
-        .expect("Invalid configuration file");
+    let json: Value = serde_json::from_reader(file).expect("Invalid configuration file");
     let mut nodes = Vec::new();
     if let Some(array) = json.as_array() {
         for item in array {
             if let Some(s) = item.as_str() {
                 match Node::from_config_uri(s.to_string()) {
                     Ok(node) => nodes.push(node),
-                    Err(e) => log_error!("{}",e.to_string())
+                    Err(e) => log_error!("{}", e.to_string()),
                 }
             }
         }
@@ -119,4 +118,3 @@ impl fmt::Display for ParseError {
 }
 
 impl std::error::Error for ParseError {}
-

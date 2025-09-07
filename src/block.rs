@@ -17,7 +17,10 @@ pub struct Block {
 
 impl Block {
     pub fn new(data: Bytes, prev_hash: String) -> Self {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
         Self {
             id: Uuid::new_v4().into(),
             data,
@@ -29,7 +32,10 @@ impl Block {
     }
 
     pub fn genesis() -> Self {
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
         let mut hasher = Sha256::new();
         hasher.update("_GENESIS_");
         Self {
@@ -54,25 +60,30 @@ impl Block {
 
     pub fn mine_block(&mut self, difficulty: u8) {
         let target = "0".repeat(difficulty as usize);
-        let timestamp1 = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+        let timestamp1 = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
         let mut hash = String::new();
         while !hash.starts_with(&target) {
             self.nonce += 1;
             hash = self.calculate_hash();
         }
         self.hash = hash;
-        let timestamp2 = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+        let timestamp2 = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
         let time = timestamp2 - timestamp1;
-        println!("Block mined at {timestamp2} in {time}ms: {}",self.hash);
+        println!("Block mined at {timestamp2} in {time}ms: {}", self.hash);
     }
 }
 
 impl ByteSerialize for Block {
     fn to_bytes(&self) -> Bytes {
-       todo!() 
+        todo!()
     }
     fn from_bytes(bytes: Bytes) -> Self {
-       todo!() 
+        todo!()
     }
 }
-

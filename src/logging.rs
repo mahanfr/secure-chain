@@ -1,6 +1,4 @@
-
 use colored::Colorize;
-
 
 /// Colorize based on logging level
 /// level 0: info(blue)
@@ -14,7 +12,7 @@ pub fn log_color(level: u8) -> colored::ColoredString {
         1 => "[Success]".green(),
         2 => "[Waring]".yellow(),
         3 => "[Error]".red(),
-        _ => "[Info]".into()
+        _ => "[Info]".into(),
     }
 }
 /// Log info
