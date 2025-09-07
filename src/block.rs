@@ -1,12 +1,13 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::types::{ByteSerialize, Bytes};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Block {
-    pub id: Uuid,
+    pub id: String,
     pub data: Bytes,
     pub timestamp: u128,
     pub hash: String,
@@ -18,7 +19,7 @@ impl Block {
     pub fn new(data: Bytes, prev_hash: String) -> Self {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
         Self {
-            id: Uuid::new_v4(),
+            id: Uuid::new_v4().into(),
             data,
             timestamp,
             hash: String::new(),
@@ -32,7 +33,7 @@ impl Block {
         let mut hasher = Sha256::new();
         hasher.update("_GENESIS_");
         Self {
-            id: Uuid::new_v4(),
+            id: Uuid::new_v4().into(),
             data: "_GENESIS_".as_bytes().to_vec(),
             timestamp,
             hash: format!("{:x}", hasher.finalize()),

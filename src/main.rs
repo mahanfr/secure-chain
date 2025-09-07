@@ -1,13 +1,14 @@
-use std::{collections::HashMap, fs::{self, create_dir}, io::{self, Write}, net::SocketAddr, process::exit, str::FromStr, sync::Arc};
+use std::{collections::HashMap, fs::{self}, io::{self, Write}, net::SocketAddr, process::exit, str::FromStr, sync::Arc};
 
 use anyhow::{Context, Result};
 use colored::Colorize;
+use lazy_static::lazy_static;
 use rustyline::DefaultEditor;
 use serde::{Deserialize, Serialize};
 use tokio::{io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter}, net::{TcpListener, TcpStream}, sync::Mutex};
 use uuid::Uuid;
 
-use crate::bootstrap::read_nodes_list;
+use crate::{block::Block, bootstrap::read_nodes_list};
 
 mod blockchain;
 mod types;
@@ -17,14 +18,31 @@ mod p2p;
 mod logging;
 
 static DEBUG : bool = true;
+static HISTORY_FOLDER: &'static str = "./data/.history";
+static SHELL_HISTORY_LOC: &'static str = "./data/.history/shell.txt";
+
+lazy_static! {
+    static ref ACTIVE_PEERS: Mutex<HashMap<String, Peer>> = Mutex::new(HashMap::new());
+    static ref PUBLIC_KEY: Mutex<String> = Mutex::new(String::new()); // For now
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Peer {
+    pub public_key: String,
+    pub addr: SocketAddr,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Message {
     Handshake { id: String },
+    //ReqBlockById(String), // Block ID
+    //ReqBlockByHash(String), // Block ID
+    //Block(Block),
     Ping,
     Pong,
 }
 
+// Redundent for now i cant decide between global and local variable for Peers
 type SharedPeers = Arc<Mutex<HashMap<String, SocketAddr>>>;
 
 pub fn qa(question: &str, answer: &mut String) -> io::Result<()> {
@@ -39,23 +57,17 @@ pub async fn run_server(port: u16) -> Result<()> {
     let listen_addr = SocketAddr::from_str(&format!("0.0.0.0:{port}"))?;
     let trusted_nodes = read_nodes_list("data/starting_nodes.json");
 
-    let peers: SharedPeers = Arc::new(Mutex::new(HashMap::new()));
-    let node_id = Uuid::new_v4();
     let listener = TcpListener::bind(&listen_addr)
         .await
         .with_context(|| format!("failed to bind to {}", listen_addr))?;
 
     {
-        let peers = peers.clone();
-        let node_id = node_id.clone();
         tokio::spawn(async move {
             loop {
                 match listener.accept().await {
                     Ok((stream, addr)) => {
-                        let peers = peers.clone();
-                        let node_id = node_id.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = handle_connection(stream, addr, node_id, peers).await {
+                            if let Err(e) = handle_connection(stream, addr).await {
                                 log_warn!("Connection {} error: {:?}", addr, e);
                             }
                         });
@@ -69,8 +81,6 @@ pub async fn run_server(port: u16) -> Result<()> {
     }
 
     for node in trusted_nodes {
-        let peers = peers.clone();
-        let node_id = node_id.clone();
         let Ok(node_addr): Result<SocketAddr, _> = node.addr().parse() else {
             continue;
         };
@@ -83,7 +93,7 @@ pub async fn run_server(port: u16) -> Result<()> {
                 if attempt > 3 { break; }
                 match TcpStream::connect(node_addr).await {
                     Ok(stream) => {
-                        if let Err(e) = handle_outgoing(stream, node_addr, node_id.clone(), peers.clone()).await {
+                        if let Err(e) = handle_outgoing(stream, node_addr).await {
                             log_warn!("Error with outgoing connection to {}: {:?}",node_addr, e);
                         }
                         break;
@@ -100,7 +110,7 @@ pub async fn run_server(port: u16) -> Result<()> {
     Ok(())
 }
 
-pub async fn handle_connection(stream: TcpStream, addr: SocketAddr, master_id: Uuid, peers: SharedPeers) -> Result<()> {
+pub async fn handle_connection(stream: TcpStream, addr: SocketAddr) -> Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut writer = BufWriter::new(&mut writer);
     let mut reader = BufReader::new(reader);
@@ -115,13 +125,12 @@ pub async fn handle_connection(stream: TcpStream, addr: SocketAddr, master_id: U
     match remote_msg {
         Message::Handshake { id } => {
             log_success!("Handshake recived from {} -> id {}", addr, id);
-            let ours = Message::Handshake { id: master_id.to_string() };
+            let ours = Message::Handshake { id: PUBLIC_KEY.lock().await.to_string() };
             let s = serde_json::to_string(&ours)?;
             writer.write_all(s.as_bytes()).await?;
             writer.write_all(b"\n").await?;
             writer.flush().await?;
-
-            peers.lock().await.insert(id.clone(), addr);
+            ACTIVE_PEERS.lock().await.insert(id.clone(), Peer {public_key: id.clone(), addr: addr});
         },
         Message::Ping => {
             let reply = serde_json::to_string(&Message::Pong)?;
@@ -136,12 +145,12 @@ pub async fn handle_connection(stream: TcpStream, addr: SocketAddr, master_id: U
     Ok(())
 }
 
-pub async fn handle_outgoing(stream: TcpStream, addr: SocketAddr, master_id: Uuid, peers: SharedPeers) -> Result<()> {
+pub async fn handle_outgoing(stream: TcpStream, addr: SocketAddr) -> Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut writer = BufWriter::new(&mut writer);
     let mut reader = BufReader::new(reader);
 
-    let ours = Message::Handshake { id: master_id.to_string() };
+    let ours = Message::Handshake { id: PUBLIC_KEY.lock().await.to_string() };
     let s = serde_json::to_string(&ours)?;
     writer.write_all(s.as_bytes()).await?;
     writer.write_all(b"\n").await?;
@@ -160,7 +169,7 @@ pub async fn handle_outgoing(stream: TcpStream, addr: SocketAddr, master_id: Uui
     match remote_msg {
         Message::Handshake { id: remote_id } => {
             log_success!("resived handshake");
-            peers.lock().await.insert(remote_id.clone(), addr);
+            ACTIVE_PEERS.lock().await.insert(remote_id.clone(), Peer {public_key: remote_id.clone(), addr: addr});
         },
         _ => (),
     }
@@ -169,8 +178,7 @@ pub async fn handle_outgoing(stream: TcpStream, addr: SocketAddr, master_id: Uui
 
 pub async fn terminal_shell() -> Result<()> {
     let mut rl = DefaultEditor::new()?;
-    let history_loc = "./data/.history/shell.txt";
-    let _ = rl.load_history(history_loc);
+    let _ = rl.load_history(SHELL_HISTORY_LOC);
     loop {
         let readline = rl.readline(">> ");
         match readline {
@@ -180,10 +188,14 @@ pub async fn terminal_shell() -> Result<()> {
                 match command.as_str() {
                     "" => (),
                     "exit" => {
-                        let _ = rl.save_history(history_loc);
+                        let _ = rl.save_history(SHELL_HISTORY_LOC);
                         exit(0)
                     },
-                    "ls" => { },
+                    "ls" => {
+                        for peer in ACTIVE_PEERS.lock().await.values() {
+                            println!("Peer {:?}", peer);
+                        }
+                    },
                     "start" => {
                         let mut buffer = String::new();
                         qa("incoming port (default 7070)?", &mut buffer)?;
@@ -191,13 +203,13 @@ pub async fn terminal_shell() -> Result<()> {
                         let port = match port_str.parse::<u16>() {
                             Ok(x) => {
                                 if x < 1024 {
-                                    println!("{}: Root privilages needed for ports smaller than 1024","warning".yellow());
+                                    log_warn!("Root privilages needed for ports smaller than 1024");
                                 }
-                                x   
+                                x 
                             },
                             Err(e) => {
                                 if !port_str.is_empty() {
-                                    eprintln!("Unexpected port number: {e}");
+                                    log_error!("Unexpected port number: {e}");
                                 }
                                 7070
                             },
@@ -208,7 +220,7 @@ pub async fn terminal_shell() -> Result<()> {
                 }
             },
             Err(rustyline::error::ReadlineError::Interrupted) => {
-                let _ = rl.save_history(history_loc);
+                let _ = rl.save_history(SHELL_HISTORY_LOC);
                 exit(0)
             },
             Err(_) => (),
@@ -217,8 +229,10 @@ pub async fn terminal_shell() -> Result<()> {
 }
 
 fn generate_files_if_needed() -> Result<()> {
-    match fs::create_dir("./data/.history") {
-        Ok(()) => (),
+    match fs::create_dir(HISTORY_FOLDER) {
+        Ok(()) => {
+            let _ = fs::File::create(SHELL_HISTORY_LOC);
+        },
         Err(e) => {
             if e.kind() != io::ErrorKind::AlreadyExists {
                 panic!("cannot create folder: {}",e);
@@ -226,8 +240,6 @@ fn generate_files_if_needed() -> Result<()> {
         }
     }
 
-    let history_loc = "./data/.history/shell.txt";
-    let _ = fs::File::create(history_loc);
     Ok(())
 }
 
@@ -235,6 +247,9 @@ fn generate_files_if_needed() -> Result<()> {
 async fn main() -> Result<(),()> {
     env_logger::init();
     generate_files_if_needed().unwrap();
+    // TODO: Read/Create Public key (not sure how)
+    // TODO: This is bad. should be context insted of global variable (works for now)
+    *PUBLIC_KEY.lock().await = Uuid::new_v4().to_string();
     let args: Vec<String> = std::env::args().collect();
     if DEBUG { println!("{}","*** Debug mode is ON ***".yellow()); }
     if args.len() < 2 {
