@@ -1,0 +1,70 @@
+DEMONSTRATION LICENSE (Demo-Only)
+Version 1.0
+
+Copyright (c) 2025 mahanfr
+Project: Secure-Chain
+Repository: https://github.com/mahanfr/secure-chain
+
+1. Definitions
+   "Software" means the source code and associated files in this repository.
+   "You" means the individual or entity exercising permissions under this License.
+
+2. Grant of License (Evaluation/Demo Only)
+   Subject to the terms below, the Owner grants You a limited, revocable,
+   nonexclusive, nontransferable, royalty-free license to:
+     a) use, copy, and modify the Software solely for internal evaluation,
+        education, proofs-of-concept, and demonstrations; and
+     b) display the Software in presentations, prototypes, and tutorials.
+
+3. Restrictions
+   You MUST NOT:
+     a) use the Software in production systems or for any commercial purpose;
+     b) provide the Software (or services powered by it) to third parties for a fee
+        or as part of a commercial offering;
+     c) deploy the Software to environments that process real or sensitive data;
+     d) remove or alter copyright, license, or attribution notices; or
+     e) use any Owner trademarks, logos, or names without separate written permission.
+
+4. Limited Redistribution
+   You may share unmodified or modified copies of the Software only for the same
+   demo/evaluation purposes, provided that You:
+     a) include this License in full and all existing notices; and
+     b) clearly mark all copies and derivative works:
+        "FOR DEMONSTRATION/EVALUATION ONLY — NOT FOR PRODUCTION USE."
+
+5. Third-Party Components
+   The Software may include or depend on third-party components that are
+   separately licensed. Those licenses govern their respective components.
+
+6. No Support; No Updates
+   The Software is provided without support, maintenance, or update commitments.
+
+7. Disclaimer of Warranty
+   THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY
+   KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+   YOUR USE IS AT YOUR OWN RISK.
+
+8. Limitation of Liability
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT WILL THE OWNER OR
+   CONTRIBUTORS BE LIABLE FOR ANY DAMAGES OR LIABILITIES, WHETHER IN CONTRACT,
+   TORT, OR OTHERWISE, ARISING FROM OR RELATED TO THE SOFTWARE OR THIS LICENSE,
+   INCLUDING WITHOUT LIMITATION ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL,
+   OR PUNITIVE DAMAGES, OR LOSS OF PROFITS, REVENUE, DATA, OR GOODWILL.
+
+9. Security; Compliance
+   You are solely responsible for evaluating the Software’s suitability and for
+   complying with applicable laws, including export controls and data-protection
+   regulations.
+
+10. Termination
+   This License terminates automatically if You breach any term. Upon termination,
+   You must cease all use and destroy all copies. The Owner may grant written
+   exceptions or reinstatement at its discretion.
+
+11. Entire Agreement
+   This License is the complete agreement concerning its subject matter and
+   supersedes all prior understandings related to the Software.
+
+END OF TERMS
+
