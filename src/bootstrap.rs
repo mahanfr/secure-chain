@@ -2,9 +2,13 @@ use core::fmt;
 use std::fs::File;
 
 use serde_json::Value;
+use uuid::Uuid;
+
+use crate::log_error;
 
 #[derive(Debug, Clone)]
 pub struct Node {
+    id: Uuid,
     public_key: String,
     adress: String,
     port: u16,
@@ -52,6 +56,7 @@ impl Node {
             .map_err(|_| ParseError::InvalidPort)?;
 
         Ok(Self{
+            id: Uuid::new_v4(),
             public_key: pk.to_string(),
             adress: host_str.to_string(),
             port,
@@ -74,7 +79,7 @@ pub fn read_nodes_list(file_path: impl ToString) -> Vec<Node> {
             if let Some(s) = item.as_str() {
                 match Node::from_config_uri(s.to_string()) {
                     Ok(node) => nodes.push(node),
-                    Err(e) => eprintln!("{}",e.to_string())
+                    Err(e) => log_error!("{}",e.to_string())
                 }
             }
         }
