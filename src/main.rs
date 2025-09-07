@@ -170,17 +170,17 @@ pub async fn handle_outgoing(stream: TcpStream, addr: SocketAddr, master_id: Uui
 pub async fn terminal_shell() -> Result<()> {
     let mut rl = DefaultEditor::new()?;
     let history_loc = "./data/.history/shell.txt";
-    rl.load_history(history_loc)?;
+    let _ = rl.load_history(history_loc);
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
                 let command = line.trim().to_lowercase().to_string();
-                rl.add_history_entry(command.as_str())?;
+                let _ = rl.add_history_entry(command.as_str());
                 match command.as_str() {
                     "" => (),
                     "exit" => {
-                        rl.save_history(history_loc)?;
+                        let _ = rl.save_history(history_loc);
                         exit(0)
                     },
                     "ls" => { },
@@ -208,7 +208,7 @@ pub async fn terminal_shell() -> Result<()> {
                 }
             },
             Err(rustyline::error::ReadlineError::Interrupted) => {
-                rl.save_history(history_loc)?;
+                let _ = rl.save_history(history_loc);
                 exit(0)
             },
             Err(_) => (),
@@ -225,6 +225,9 @@ fn generate_files_if_needed() -> Result<()> {
             }
         }
     }
+
+    let history_loc = "./data/.history/shell.txt";
+    let _ = fs::File::create(history_loc);
     Ok(())
 }
 
