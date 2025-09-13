@@ -30,6 +30,7 @@ impl std::error::Error for PeerParseError {}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NetworkError {
     HandshakeRequired,
+    Block404,
 }
 
 impl fmt::Display for NetworkError {
@@ -37,6 +38,7 @@ impl fmt::Display for NetworkError {
         use NetworkError::*;
         let msg = match self {
             HandshakeRequired => "Handshake required to stablish a connection",
+            Block404 => "Block not found in our chian",
         };
         f.write_str(msg)
     }

@@ -8,7 +8,7 @@ use anyhow::Result;
 use colored::Colorize;
 use rustyline::DefaultEditor;
 
-use crate::{keys::PublicKey, networking::P2PNetwork, peers::bootstap_peers};
+use crate::{blockchain::Blockchain, keys::PublicKey, networking::{AppState, P2PNetwork}, peers::bootstap_peers};
 
 mod block;
 mod blockchain;
@@ -67,7 +67,10 @@ pub async fn terminal_shell(network: &mut P2PNetwork) -> Result<()> {
                             }
                         };
                         network.set_port(port);
-                        network.start().await?;
+                        let pk = PublicKey::from_string("ff00ee22")?;
+                        let chain = Blockchain::new();
+                        let state = AppState::new(pk, chain);
+                        network.start(state).await?;
                     }
                     _ => println!("Unknown command: {}", command),
                 }

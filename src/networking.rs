@@ -3,9 +3,9 @@ use std::{collections::HashMap, net::SocketAddr, str::FromStr, sync::Arc, time::
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use tokio::{io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter, WriteHalf}, net::{TcpListener, TcpStream}, stream, sync::Mutex};
+use tokio::{io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter}, net::{TcpListener, TcpStream}, sync::{Mutex, RwLock}};
 
-use crate::{errors::NetworkError, keys::PublicKey, log_error, log_info, log_success, log_warn, peers::Peer};
+use crate::{block::Block, blockchain::Blockchain, errors::NetworkError, keys::PublicKey, log_error, log_info, log_warn, peers::Peer};
 
 pub type SharedPeers = Arc<Mutex<HashMap<PublicKey, Peer>>>;
 pub type BootstapNodes = Vec<Peer>;
@@ -44,7 +44,24 @@ impl Into<Peer> for HandShake {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PeerMessage {
     Handshake(HandShake),
+    GetBlockByHash(String),
+    GetBlockById(String),
+    GetLastBlock,
+    Block(Block),
     Error(NetworkError),
+}
+
+pub struct AppState {
+    pub pk: RwLock<PublicKey>,
+    pub chain: RwLock<Blockchain>,
+}
+impl AppState {
+    pub fn new(pk: PublicKey, chain: Blockchain) -> Arc<Self> {
+        Arc::new(Self {
+            pk: RwLock::new(pk),
+            chain: RwLock::new(chain)
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -72,7 +89,7 @@ impl P2PNetwork {
         self.listen_addr = SocketAddr::from_str(&format!("0.0.0.0:{}", port)).unwrap();
     }
 
-    pub async fn start(&self) -> Result<()> {
+    pub async fn start(&self, state: Arc<AppState>) -> Result<()> {
         let listener = TcpListener::bind(self.listen_addr).await?;
         log_info!("P2P node listening on {}",self.listen_addr);
 
@@ -82,7 +99,7 @@ impl P2PNetwork {
         let peers = self.peers.clone();
         let hs = HandShake::new(self.pk.clone(), self.listen_addr);
         tokio::spawn(async move {
-            if let Err(e) = Self::accept_connections(listener, peers, hs).await {
+            if let Err(e) = Self::accept_connections(state, listener, peers, hs).await {
                 log_error!("Error accepting connection: {e}");
             } 
         });
@@ -91,6 +108,7 @@ impl P2PNetwork {
     }
 
     async fn accept_connections(
+        state: Arc<AppState>,
         listener: TcpListener,
         peers: SharedPeers,
         handshake: HandShake,
@@ -102,8 +120,9 @@ impl P2PNetwork {
 
                     let peers = peers.clone();
                     let hs = handshake.clone();
+                    let state = state.clone();
                     tokio::spawn(async move {
-                        match Self::handle_incomming(stream, addr.clone(), hs).await {
+                        match Self::handle_incomming(state, stream, addr.clone(), hs).await {
                             Ok(Some(peer)) => {
                                 peers.lock().await.insert(peer.pk.clone(), peer);
                             },
@@ -122,6 +141,7 @@ impl P2PNetwork {
     }
 
     async fn handle_incomming(
+        state: Arc<AppState>,
         stream: TcpStream,
         addr: SocketAddr,
         handshake: HandShake,
@@ -145,9 +165,24 @@ impl P2PNetwork {
                 writer.flush().await?;
                 return Ok(Some(hs.into()));
             },
+            PeerMessage::GetLastBlock => {
+               let chain = state.chain.read().await;
+               if let Some(block) = (*chain).last_block() {
+                   let s = serde_json::to_string(&PeerMessage::Block(block))?;
+                   writer.write_all(s.as_bytes()).await?;
+                   writer.write_all(b"\n").await?;
+                   writer.flush().await?;
+               } else {
+                   let s = serde_json::to_string(&PeerMessage::Error(NetworkError::Block404))?;
+                   writer.write_all(s.as_bytes()).await?;
+                   writer.write_all(b"\n").await?;
+                   writer.flush().await?;
+               }
+            },
             PeerMessage::Error(e) => {
-                log_error!("Error recived from {addr}: {e}");
+                log_warn!("Error recived from {addr}: {e}");
             }
+            _ => (),
         }
 
         Ok(None) 

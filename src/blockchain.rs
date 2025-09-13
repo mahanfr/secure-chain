@@ -26,6 +26,10 @@ impl Blockchain {
     pub fn last_hash(&self) -> String {
         self.blocks.last().unwrap().hash.clone()
     }
+
+    pub fn last_block(&self) -> Option<Block> {
+        self.blocks.last().cloned()
+    }
 }
 
 impl ByteSerialize for Blockchain {
