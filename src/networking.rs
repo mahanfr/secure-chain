@@ -49,6 +49,7 @@ pub enum PeerMessage {
     GetLastBlock,
     Block(Block),
     Error(NetworkError),
+    Ping,
 }
 
 pub struct AppState {
@@ -59,7 +60,7 @@ impl AppState {
     pub fn new(pk: PublicKey, chain: Blockchain) -> Arc<Self> {
         Arc::new(Self {
             pk: RwLock::new(pk),
-            chain: RwLock::new(chain)
+            chain: RwLock::new(chain),
         })
     }
 }
@@ -251,6 +252,10 @@ impl P2PNetwork {
                 });
             }
         }
+        Ok(())
+    }
+
+    pub async fn broadcast(&self, message: PeerMessage) -> Result<()> {
         Ok(())
     }
 
