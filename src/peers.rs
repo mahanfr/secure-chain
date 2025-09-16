@@ -1,19 +1,17 @@
-use std::{fs::File, net::SocketAddr, str::FromStr};
-use serde_json::Value;
 use crate::{errors::PeerParseError, keys::PublicKey, log_error};
+use serde_json::Value;
+use std::{fs::File, net::SocketAddr, str::FromStr};
 
 #[derive(Debug, Clone)]
 pub struct Peer {
     pub addr: SocketAddr,
     pub pk: PublicKey,
-    pub is_connected: bool,
 }
 impl Peer {
-    pub fn new(addr: SocketAddr, pk: PublicKey, is_connected:bool) -> Self {
+    pub fn new(addr: SocketAddr, pk: PublicKey) -> Self {
         Self {
             addr,
             pk,
-            is_connected,
         }
     }
 
@@ -34,9 +32,12 @@ impl Peer {
         let (pk, addr_port) = parsable.split_at(at_pos);
         let pk = PublicKey::from_string(pk)?;
         let Ok(addr) = SocketAddr::from_str(&addr_port[1..]) else {
-           return Err(PeerParseError::InvalidAddr);
+            return Err(PeerParseError::InvalidAddr);
         };
-        Ok(Peer {addr, pk, is_connected: false})
+        Ok(Peer {
+            addr,
+            pk,
+        })
     }
 }
 

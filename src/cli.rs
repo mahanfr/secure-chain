@@ -1,11 +1,18 @@
-use std::{io::{self, Write}, process::exit, sync::Arc};
+use std::{
+    io::{self, Write},
+    process::exit,
+    sync::Arc,
+};
 
 use anyhow::Result;
 use rustyline::DefaultEditor;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{self, Sender};
 
-use crate::{log_error, log_warn, networking::{P2PNetwork, PeerMessage}, SHELL_HISTORY_LOC};
+use crate::{
+    SHELL_HISTORY_LOC, log_error, log_warn,
+    networking::{P2PNetwork, PeerMessage},
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NetworkCommand {
@@ -47,18 +54,18 @@ impl Cli {
                         for (addr, peer) in peers.iter() {
                             println!(" {} - connected: {}", peer.pk, addr);
                         }
-                    },
+                    }
                     NetworkCommand::Ping => {
                         if let Err(e) = network_clone.broadcast(PeerMessage::Ping).await {
                             eprintln!("Error broadcasting ping command: {e}");
                         }
-                    },
+                    }
                     NetworkCommand::Quit => {
                         // Clean up
                         exit(0);
-                    },
+                    }
                     NetworkCommand::Help => {
-                       println!("{}", NetworkCommand::help());
+                        println!("{}", NetworkCommand::help());
                     }
                     NetworkCommand::LastBlock => {
                         if let Err(e) = network_clone.broadcast(PeerMessage::GetLastBlock).await {
@@ -68,10 +75,13 @@ impl Cli {
                 }
             }
         });
-        Self {network, command_tx}
+        Self {
+            network,
+            command_tx,
+        }
     }
 
-    fn ask(question: &str, answer: &mut String) -> io::Result<()> {
+    fn _ask(question: &str, answer: &mut String) -> io::Result<()> {
         print!("{question} ");
         std::io::stdout().flush()?;
 
@@ -96,6 +106,9 @@ impl Cli {
                         }
                         "ls" => {
                             self.command_tx.send(NetworkCommand::List).await?;
+                        }
+                        "ping" => {
+                            self.command_tx.send(NetworkCommand::Ping).await?;
                         }
                         _ => println!("Unknown command: {}", command),
                     }
