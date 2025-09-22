@@ -24,6 +24,7 @@ mod logging;
 mod networking;
 mod peers;
 mod types;
+mod protocol;
 
 static HISTORY_FOLDER: &'static str = "./data/.history";
 static SHELL_HISTORY_LOC: &'static str = "./data/.history/shell.txt";

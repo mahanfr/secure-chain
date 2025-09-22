@@ -11,12 +11,12 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter},
-    net::{TcpListener, TcpSocket, TcpStream},
+    net::{TcpListener, TcpStream},
     sync::{mpsc::{self, Receiver, Sender}, Mutex, RwLock},
 };
 
 use crate::{
-    block::Block, blockchain::Blockchain, cli::NetworkCommand, errors::NetworkError, keys::PublicKey, log_error, log_info, log_warn, peers::{self, Peer}
+    block::Block, blockchain::Blockchain, errors::NetworkError, keys::PublicKey, log_error, log_info, log_warn, peers::Peer
 };
 
 pub type SharedPeers = Arc<Mutex<HashMap<PublicKey, Peer>>>;
@@ -53,6 +53,7 @@ impl Into<Peer> for HandShake {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[repr(u16)]
 pub enum PeerMessage {
     Handshake(HandShake),
     GetBlockByHash(String),
