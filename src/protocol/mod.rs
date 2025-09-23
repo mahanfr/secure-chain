@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::{networking::PeerMessage, protocol::header::P2ProtHeader};
+use crate::{networking::PeerMessage, protocol::{header::P2ProtHeader, header_ext::HeaderExt}};
 
 pub mod header;
 pub mod proof_of_work;
@@ -11,11 +11,12 @@ pub mod header_ext;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct P2Protocol {
     pub header: P2ProtHeader,
+    pub header_exts: Vec<HeaderExt>,
     pub payload: Vec<u8>,
 }
 
 impl P2Protocol {
-    pub async fn new(message: &PeerMessage) -> Result<Self> {
+    pub fn new(message: &PeerMessage) -> Result<Self> {
         let s = serde_json::to_string(message)?;
         let payload = format!("{s}\r\n").as_bytes().to_vec();
         let mut header = P2ProtHeader::default();
@@ -25,17 +26,15 @@ impl P2Protocol {
         let hash = hasher.finalize();
         let checksum = u32::from_le_bytes(hash[0..4].try_into()?);
         header.checksum = checksum;
-        Ok(Self {header, payload})
+        Ok(Self {header, header_exts: vec![] ,payload})
     }
 
-    pub fn set_pow_flag(&mut self, flag: bool) {
-        if flag {
-            self.header.flags |= 0x2;
-        } else {
-            self.header.flags &= !0x2;
-        }
+    pub fn add_extention(&mut self, ext: HeaderExt) {
+        // Inefficient but eh.. it is a small structure
+        let config = bincode::config::standard();
+        let val = bincode::serde::encode_to_vec(&ext ,config);
+        self.header.header_ext_len += val.iter().len() as u32;
+        self.header_exts.push(ext)
     }
-    pub fn get_pow_flag(&self) -> bool {
-        (self.header.flags & 0x2) != 0
-    }
+
 } 
