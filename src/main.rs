@@ -1,6 +1,7 @@
 use std::{
     fs::{self},
     io::{self},
+    process::exit,
     sync::Arc,
 };
 
@@ -11,6 +12,7 @@ use crate::{
     keys::PublicKey,
     networking::{AppState, P2PNetwork},
     peers::bootstap_peers,
+    protocol::P2Protocol,
 };
 use anyhow::Result;
 
@@ -23,8 +25,8 @@ mod keys;
 mod logging;
 mod networking;
 mod peers;
-mod types;
 mod protocol;
+mod types;
 
 static HISTORY_FOLDER: &'static str = "./data/.history";
 static SHELL_HISTORY_LOC: &'static str = "./data/.history/shell.txt";

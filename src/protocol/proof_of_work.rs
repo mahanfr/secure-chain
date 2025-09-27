@@ -1,6 +1,6 @@
-use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::protocol::header::P2ProtHeader;
 
@@ -14,7 +14,7 @@ impl PoWAlgo {
     pub fn from_u8(byte: u8) -> Self {
         match byte {
             1 => PoWAlgo::Sha256LeadingZero,
-            _ => PoWAlgo::None
+            _ => PoWAlgo::None,
         }
     }
 }
@@ -33,7 +33,7 @@ impl PoWExt {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis();
-        let mut nonce : u64 = 0;
+        let mut nonce: u64 = 0;
         loop {
             nonce += 1;
             let hash = Self::gen_hash(header, &timestamp, &nonce);
@@ -68,13 +68,15 @@ impl PoWExt {
                 if self_diff < self.difficulty {
                     true
                 } else {
-                    if Self::gen_hash(packet_header, &self.timestamp, &self.nonce).starts_with(&b"0".repeat(self.difficulty as usize)) {
+                    if Self::gen_hash(packet_header, &self.timestamp, &self.nonce)
+                        .starts_with(&b"0".repeat(self.difficulty as usize))
+                    {
                         true
-                    }else {
+                    } else {
                         false
                     }
                 }
-            },
+            }
             _ => false,
         }
     }

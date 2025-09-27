@@ -1,3 +1,5 @@
+use anyhow::Result;
+use bincode::config;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::{Deserialize, Serialize};
 
@@ -19,9 +21,8 @@ impl ContentType {
     pub fn from_message(msg: PeerMessage) -> Self {
         use PeerMessage::*;
         match msg {
-           Handshake(_) | GetLastBlock |
-               GetBlockById(_) | GetBlockByHash(_) |
-               Error(_) | Block(_) => Self::Json,
+            Handshake(_) | GetLastBlock | GetBlockById(_) | GetBlockByHash(_) | Error(_)
+            | Block(_) => Self::Json,
             Ping => Self::Ping,
             Pong => Self::Pong,
         }
@@ -70,6 +71,17 @@ pub struct P2ProtHeader {
     pub session_id: u64,
 }
 
+impl P2ProtHeader {
+    pub fn from_bytes(slice: &[u8]) -> Result<Self> {
+        let (header, n): (Self, usize) =
+            bincode::serde::decode_from_slice(slice, config::standard().with_fixed_int_encoding())?;
+        if n != 32 {
+            anyhow::bail!("invalid header size")
+        }
+        Ok(header)
+    }
+}
+
 impl Default for P2ProtHeader {
     fn default() -> Self {
         Self {
@@ -84,4 +96,3 @@ impl Default for P2ProtHeader {
         }
     }
 }
-

@@ -8,15 +8,19 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use bincode::config;
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter},
-    net::{TcpListener, TcpStream},
-    sync::{mpsc::{self, Receiver, Sender}, Mutex, RwLock},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, BufWriter},
+    net::{tcp::OwnedReadHalf, TcpListener, TcpStream},
+    sync::{
+        mpsc::{self, Receiver, Sender}, Mutex, RwLock
+    },
 };
 
 use crate::{
-    block::Block, blockchain::Blockchain, errors::NetworkError, keys::PublicKey, log_error, log_info, log_warn, peers::Peer
+    block::Block, blockchain::Blockchain, errors::NetworkError, keys::PublicKey, log_error,
+    log_info, log_warn, peers::Peer, protocol::{header::P2ProtHeader, P2Protocol},
 };
 
 pub type SharedPeers = Arc<Mutex<HashMap<PublicKey, Peer>>>;
@@ -67,12 +71,14 @@ pub enum PeerMessage {
 
 pub struct AppState {
     pub pk: RwLock<PublicKey>,
+    pub addr: RwLock<SocketAddr>,
     pub chain: RwLock<Blockchain>,
 }
 impl AppState {
-    pub fn new(pk: PublicKey, chain: Blockchain) -> Arc<Self> {
+    pub fn new(pk: PublicKey, addr: SocketAddr, chain: Blockchain) -> Arc<Self> {
         Arc::new(Self {
             pk: RwLock::new(pk),
+            addr: RwLock::new(addr),
             chain: RwLock::new(chain),
         })
     }
@@ -81,6 +87,7 @@ impl AppState {
 #[derive(Debug)]
 pub enum ClientCommand {
     Broadcast(PeerMessage),
+    ConnectToPeer(SocketAddr),
 }
 
 #[derive(Debug)]
@@ -112,7 +119,7 @@ impl P2PNetwork {
 
     pub async fn start(&mut self, state: Arc<AppState>) -> Result<()> {
         let (client_tx, client_rx) = mpsc::channel(100);
-        self.client_tx = Some(Arc::new(client_tx)); 
+        self.client_tx = Some(Arc::new(client_tx));
 
         let listener = TcpListener::bind(self.listen_addr).await?;
         log_info!("P2P node listening on {}", self.listen_addr);
@@ -182,42 +189,73 @@ impl P2PNetwork {
         let mut reader = BufReader::new(reader);
 
         let mut data: String = String::new();
+        let mut header_buf = vec![0u8; 32];
         loop {
-            let n = reader.read_line(&mut data).await?;
-            if n == 0 { break; }
-            let incomming_msg: PeerMessage = serde_json::from_str(&data.trim())
-                .context("parsing message from remote")
-                .unwrap();
-            match incomming_msg {
+            if let Err(e) = reader.read_exact(&mut header_buf).await {
+                log_error!("Connection closed or error: {e}");
+                break;
+            }
+            let header = match P2ProtHeader::from_bytes(&header_buf) {
+                Ok(h) => h,
+                Err(e) => {
+                    log_error!("Error parsing the header: {e}");
+                    break;
+                }
+            };
+            // DO SOME CHECKS ON HEADER
+            // DO SOME CHECKS ON HEADER
+            let mut payload = vec![0u8; header.size];
+            if let Err(e) = reader.read_exact(&mut payload).await {
+                log_error!("Error reading the message: {e}");
+                break;
+            }
+            println!("payload: {:?}",payload);
+            let (incoming_msg, _) : (PeerMessage, _) = 
+                match bincode::serde::decode_from_slice(&payload, config::standard()) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        log_error!("Error Parsing the message: {e}");
+                        break;
+                    },
+            };
+            match incoming_msg {
                 PeerMessage::Handshake(hs) => {
                     log_info!("Handshake recived from {addr}");
-                    let s = serde_json::to_string(&PeerMessage::Handshake(handshake))?;
-                    writer.write_all(s.as_bytes()).await?;
-                    writer.write_all(b"\n").await?;
+                    let protocol = P2Protocol::new(&PeerMessage::Handshake(handshake))?;
+                    writer.write_all(&protocol.serialize()?).await?;
+                    // let s = serde_json::to_string(&PeerMessage::Handshake(handshake))?;
+                    // writer.write_all(s.as_bytes()).await?;
+                    // writer.write_all(b"\n").await?;
                     writer.flush().await?;
                     return Ok(Some(hs.into()));
                 }
                 PeerMessage::Ping => {
                     log_info!("Ping recived from {addr}");
-                    let s = serde_json::to_string(&PeerMessage::Pong)?;
-                    writer.write_all(s.as_bytes()).await?;
-                    writer.write_all(b"\n").await?;
+                    let protocol = P2Protocol::new(&PeerMessage::Pong)?;
+                    writer.write_all(&protocol.serialize()?).await?;
+                    // let s = serde_json::to_string(&PeerMessage::Pong)?;
+                    // writer.write_all(s.as_bytes()).await?;
+                    // writer.write_all(b"\n").await?;
                     writer.flush().await?;
-                },
+                }
                 PeerMessage::Pong => {
                     log_info!("Pong recived from {addr}");
-                },
+                }
                 PeerMessage::GetLastBlock => {
                     let chain = state.chain.read().await;
                     if let Some(block) = (*chain).last_block() {
-                        let s = serde_json::to_string(&PeerMessage::Block(block))?;
-                        writer.write_all(s.as_bytes()).await?;
-                        writer.write_all(b"\n").await?;
+                        let protocol = P2Protocol::new(&PeerMessage::Block(block))?;
+                        writer.write_all(&protocol.serialize()?).await?;
+                        // let s = serde_json::to_string(&PeerMessage::Block(block))?;
+                        // writer.write_all(s.as_bytes()).await?;
+                        // writer.write_all(b"\n").await?;
                         writer.flush().await?;
                     } else {
-                        let s = serde_json::to_string(&PeerMessage::Error(NetworkError::Block404))?;
-                        writer.write_all(s.as_bytes()).await?;
-                        writer.write_all(b"\n").await?;
+                        let protocol = P2Protocol::new(&PeerMessage::Error(NetworkError::Block404))?;
+                        writer.write_all(&protocol.serialize()?).await?;
+                        // let s = serde_json::to_string(&PeerMessage::Error(NetworkError::Block404))?;
+                        // writer.write_all(s.as_bytes()).await?;
+                        // writer.write_all(b"\n").await?;
                         writer.flush().await?;
                     }
                 }
@@ -242,10 +280,11 @@ impl P2PNetwork {
         let mut writer = BufWriter::new(&mut writer);
         let mut reader = BufReader::new(reader);
 
-        let handshake = PeerMessage::Handshake(HandShake::new(my_pk, my_addr));
-        let s = serde_json::to_string(&handshake)?;
-        writer.write_all(s.as_bytes()).await?;
-        writer.write_all(b"\n").await?;
+        let protocol = P2Protocol::new(&PeerMessage::Handshake(HandShake::new(my_pk, my_addr)))?;
+        writer.write_all(&protocol.serialize()?).await?;
+        // let s = serde_json::to_string(&handshake)?;
+        // writer.write_all(s.as_bytes()).await?;
+        // writer.write_all(b"\n").await?;
         writer.flush().await?;
         log_info!("sending handshake to {}", addr);
 
@@ -309,12 +348,22 @@ impl P2PNetwork {
         Ok(())
     }
 
-    async fn start_client(mut rx: Receiver<ClientCommand>, peers: SharedPeers) -> Result<()> {
+    async fn start_client(state: Arc<AppState>, mut rx: Receiver<ClientCommand>, peers: SharedPeers) -> Result<()> {
         let peers = peers.clone();
-        let mut connections: HashMap<PublicKey, Arc<Mutex<BufWriter<TcpStream>>>> = HashMap::new();            
+        let mut connections: HashMap<PublicKey, Arc<Mutex<BufWriter<TcpStream>>>> = HashMap::new();
 
         while let Some(cmd) = rx.recv().await {
             match cmd {
+                ClientCommand::ConnectToPeer(addr) => {
+                    match Self::connect_to_server(addr).await {
+                        Ok(mut w_buf) => {
+                            w_buf.write_all(&vec![]);
+                        }
+                        Err(e) => {
+                            log_warn!("Failed to connect to @{}: {e}", addr);
+                        }
+                    }
+                },
                 ClientCommand::Broadcast(message) => {
                     for (pk, peer) in peers.lock().await.iter() {
                         if !connections.contains_key(pk) {
@@ -340,8 +389,8 @@ impl P2PNetwork {
                             continue;
                         }
                         if let Err(e) = gaurd.flush().await {
-                           log_warn!("Failed to flush to {pk:?}: {e}");
-                           broken.push(pk.clone());
+                            log_warn!("Failed to flush to {pk:?}: {e}");
+                            broken.push(pk.clone());
                         }
                     }
                     for pk in broken {

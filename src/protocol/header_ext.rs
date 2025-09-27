@@ -1,4 +1,4 @@
-use serde::{de::Visitor, ser::SerializeTuple, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Visitor, ser::SerializeTuple};
 
 use crate::protocol::proof_of_work::PoWExt;
 
@@ -9,8 +9,9 @@ pub enum HeaderExt {
 
 impl Serialize for HeaderExt {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer {
+    where
+        S: serde::Serializer,
+    {
         match self {
             Self::PoW(ext) => {
                 let mut tuple = serializer.serialize_tuple(2)?;
@@ -24,8 +25,9 @@ impl Serialize for HeaderExt {
 
 impl<'de> Deserialize<'de> for HeaderExt {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: serde::Deserializer<'de> {
+    where
+        D: serde::Deserializer<'de>,
+    {
         use serde::de::Error;
 
         struct HeaderExtVisitor;
@@ -41,19 +43,23 @@ impl<'de> Deserialize<'de> for HeaderExt {
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: serde::de::SeqAccess<'de>, {
-                let discriminant: u8 = seq.next_element()?
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let discriminant: u8 = seq
+                    .next_element()?
                     .ok_or_else(|| A::Error::invalid_length(0, &self))?;
                 match discriminant {
                     0x0 => {
-                        let x: PoWExt = seq.next_element()?
+                        let x: PoWExt = seq
+                            .next_element()?
                             .ok_or_else(|| A::Error::invalid_length(1, &self))?;
                         Ok(HeaderExt::PoW(x))
                     }
                     d => Err(A::Error::invalid_value(
-                            serde::de::Unexpected::Unsigned(d as u64),
-                            &"0x0")),
+                        serde::de::Unexpected::Unsigned(d as u64),
+                        &"0x0",
+                    )),
                 }
             }
         }

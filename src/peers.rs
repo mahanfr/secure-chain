@@ -9,10 +9,7 @@ pub struct Peer {
 }
 impl Peer {
     pub fn new(addr: SocketAddr, pk: PublicKey) -> Self {
-        Self {
-            addr,
-            pk,
-        }
+        Self { addr, pk }
     }
 
     pub fn to_string(self) -> String {
@@ -34,10 +31,7 @@ impl Peer {
         let Ok(addr) = SocketAddr::from_str(&addr_port[1..]) else {
             return Err(PeerParseError::InvalidAddr);
         };
-        Ok(Peer {
-            addr,
-            pk,
-        })
+        Ok(Peer { addr, pk })
     }
 }
 
