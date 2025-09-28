@@ -30,6 +30,7 @@ impl std::error::Error for PeerParseError {}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NetworkError {
     HandshakeRequired,
+    NoSessionId,
     Block404,
 }
 
@@ -39,6 +40,7 @@ impl fmt::Display for NetworkError {
         let msg = match self {
             HandshakeRequired => "Handshake required to stablish a connection",
             Block404 => "Block not found in our chian",
+            NoSessionId => "No session id has been provided",
         };
         f.write_str(msg)
     }

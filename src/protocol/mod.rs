@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     networking::PeerMessage,
-    protocol::{header::P2ProtHeader, header_ext::HeaderExt},
+    protocol::{header::{ContentType, P2ProtHeader}, header_ext::HeaderExt},
 };
 
 pub mod header;
@@ -19,21 +19,31 @@ pub struct P2Protocol {
 }
 
 impl P2Protocol {
-    pub fn new(message: &PeerMessage) -> Result<Self> {
+    pub fn new(message: &PeerMessage) -> Self {
         let payload = 
-            bincode::serde::encode_to_vec(message, bincode::config::standard())?;
+            bincode::serde::encode_to_vec(message, bincode::config::standard())
+            .expect("Internal Error: Parsing message");
         let mut header = P2ProtHeader::default();
+        header.content_type = ContentType::from_message(message);
         header.size = payload.len();
         let mut hasher = Sha256::new();
         hasher.update(&payload);
         let hash = hasher.finalize();
-        let checksum = u32::from_le_bytes(hash[0..4].try_into()?);
+        let checksum = u32::from_le_bytes(
+            hash[0..4].try_into().expect("Internal Error: Parsing message")
+        );
         header.checksum = checksum;
-        Ok(Self {
+        Self {
             header,
             header_exts: vec![],
             payload,
-        })
+        }
+    }
+
+    pub fn new_with_peer(message: &PeerMessage, peer_id: u64) -> Self {
+        let mut prot = P2Protocol::new(message);
+        prot.header.session_id = peer_id;
+        prot
     }
 
     pub fn serialize(&self) -> Result<Vec<u8>> {

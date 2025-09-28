@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::{
-    SHELL_HISTORY_LOC, log_error, log_warn,
-    networking::{P2PNetwork, PeerMessage},
+    log_error, log_warn, networking::{AppState, P2PNetwork, PeerMessage}, SHELL_HISTORY_LOC
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,14 +41,15 @@ pub struct Cli {
 }
 
 impl Cli {
-    pub fn new(network: Arc<P2PNetwork>) -> Self {
+    pub fn new(network: Arc<P2PNetwork>, state: Arc<AppState>) -> Self {
         let (command_tx, mut command_rx) = mpsc::channel(100);
         let network_clone = network.clone();
+        let state_clone = state.clone();
         tokio::spawn(async move {
             while let Some(command) = command_rx.recv().await {
                 match command {
                     NetworkCommand::List => {
-                        let peers = network_clone.peers.lock().await;
+                        let peers = state_clone.peers.lock().await;
                         println!("Connected peers:");
                         for (addr, peer) in peers.iter() {
                             println!(" {} - connected: {}", peer.pk, addr);

@@ -5,26 +5,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::networking::PeerMessage;
 
-#[derive(Debug, Serialize, Deserialize, IntoPrimitive, TryFromPrimitive, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, IntoPrimitive, TryFromPrimitive, Clone, Copy, PartialEq, Eq)]
 #[serde(into = "u16", try_from = "u16")]
 #[repr(u16)]
 pub enum ContentType {
-    Json,
     Bin,
-    Ping,
-    Pong,
+    Json,
+    HandShake,
     Unknown = 0xff,
 }
 
 impl ContentType {
     #[allow(dead_code)]
-    pub fn from_message(msg: PeerMessage) -> Self {
+    pub fn from_message(msg: &PeerMessage) -> Self {
         use PeerMessage::*;
         match msg {
-            Handshake(_) | GetLastBlock | GetBlockById(_) | GetBlockByHash(_) | Error(_)
-            | Block(_) => Self::Json,
-            Ping => Self::Ping,
-            Pong => Self::Pong,
+            Handshake(_) | HandshakeAck(_) => Self::HandShake,
+            _ => Self::Bin,
         }
     }
 }
@@ -86,7 +83,7 @@ impl Default for P2ProtHeader {
     fn default() -> Self {
         Self {
             magic: 0xE9BB,
-            content_type: ContentType::Json,
+            content_type: ContentType::Bin,
             version: 0,
             flags: 0,
             header_ext_len: 0,

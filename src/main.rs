@@ -1,7 +1,6 @@
 use std::{
     fs::{self},
     io::{self},
-    process::exit,
     sync::Arc,
 };
 
@@ -12,7 +11,6 @@ use crate::{
     keys::PublicKey,
     networking::{AppState, P2PNetwork},
     peers::bootstap_peers,
-    protocol::P2Protocol,
 };
 use anyhow::Result;
 
@@ -54,16 +52,16 @@ async fn main() -> Result<()> {
 
     let pk = PublicKey::new_dummy();
     let bootstrap_nodes = bootstap_peers("./data/starting_nodes.json");
-    let mut network = P2PNetwork::new(7070, pk.clone(), bootstrap_nodes);
+    let mut network = P2PNetwork::new(7070, bootstrap_nodes);
     parse_args(&args, &mut network).unwrap();
 
     // TODO: Read from file
     let chain = Blockchain::new();
-    let state = AppState::new(pk.clone(), chain);
-    network.start(state).await?;
+    let state = AppState::new(pk.clone(), network.listen_addr,chain);
+    network.start(state.clone()).await?;
 
     let network_arc = Arc::new(network);
-    let cli = Cli::new(network_arc.clone());
+    let cli = Cli::new(network_arc.clone(), state.clone());
 
     cli.run().await?;
     Ok(())
