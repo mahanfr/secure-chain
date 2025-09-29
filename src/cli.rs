@@ -1,7 +1,5 @@
 use std::{
-    io::{self, Write},
-    process::exit,
-    sync::Arc,
+    io::{self, Write}, process::exit, sync::Arc
 };
 
 use anyhow::Result;
@@ -10,13 +8,13 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::{
-    log_error, log_warn, networking::{AppState, P2PNetwork, PeerMessage}, SHELL_HISTORY_LOC
+    networking::{AppState, P2PNetwork, PeerMessage}, SHELL_HISTORY_LOC
 };
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NetworkCommand {
     List,
-    Ping,
+    Ping(u64),
     Quit,
     Help,
     LastBlock,
@@ -37,6 +35,7 @@ impl NetworkCommand {
 #[derive(Debug)]
 pub struct Cli {
     network: Arc<P2PNetwork>,
+    state: Arc<AppState>,
     command_tx: Sender<NetworkCommand>,
 }
 
@@ -55,9 +54,15 @@ impl Cli {
                             println!(" {} - connected: {}", peer.pk, addr);
                         }
                     }
-                    NetworkCommand::Ping => {
-                        if let Err(e) = network_clone.broadcast(PeerMessage::Ping).await {
-                            eprintln!("Error broadcasting ping command: {e}");
+                    NetworkCommand::Ping(val) => {
+                        if val == 0 {
+                            if let Err(e) = network_clone.broadcast(PeerMessage::Ping).await {
+                                eprintln!("Error broadcasting ping command: {e}");
+                            }
+                        } else {
+                            if let Err(e) = network_clone.ping(val).await {
+                                eprintln!("Error pinging the user {val} command: {e}");
+                            }
                         }
                     }
                     NetworkCommand::Quit => {
@@ -77,6 +82,7 @@ impl Cli {
         });
         Self {
             network,
+            state,
             command_tx,
         }
     }
@@ -96,9 +102,13 @@ impl Cli {
             let readline = rl.readline(">> ");
             match readline {
                 Ok(line) => {
-                    let command = line.trim().to_lowercase().to_string();
-                    let _ = rl.add_history_entry(command.as_str());
-                    match command.as_str() {
+                    let c_line = line.trim().to_lowercase().to_string();
+                    let c_args: Vec<&str> = c_line.split_whitespace().collect();
+                    let _ = rl.add_history_entry(c_line.as_str());
+                    if c_args.is_empty() {
+                        continue;
+                    }
+                    match c_args[0] {
                         "" => (),
                         "exit" => {
                             let _ = rl.save_history(SHELL_HISTORY_LOC);
@@ -108,9 +118,30 @@ impl Cli {
                             self.command_tx.send(NetworkCommand::List).await?;
                         }
                         "ping" => {
-                            self.command_tx.send(NetworkCommand::Ping).await?;
+                            if let Some(who) = c_args.iter().nth(1) {
+                                match *who {
+                                    "all" => {
+                                        self.command_tx.send(NetworkCommand::Ping(0)).await?;
+                                    }
+                                    s => {
+                                        if s.len() < 5 {
+                                            println!("please provide at least the first 5 numbers of the peer id");
+                                            continue;
+                                        } else {
+                                            let peers = self.state.peers.lock().await;
+                                           let peer_ids: Vec<&u64> = peers.keys()
+                                               .filter(|k| k.to_string().starts_with(s)).collect();
+                                            for peer_id in peer_ids {
+                                               self.command_tx.send(NetworkCommand::Ping(*peer_id)).await?;
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                println!("Please provide: <all> to ping all connected peers or at least the first 5 character of their peer id");
+                            }
                         }
-                        _ => println!("Unknown command: {}", command),
+                        _ => println!("Unknown command: {}", c_args[0]),
                     }
                 }
                 Err(rustyline::error::ReadlineError::Interrupted) => {

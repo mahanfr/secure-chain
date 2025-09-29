@@ -3,6 +3,7 @@ use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::protocol::header::P2ProtHeader;
+#[allow(dead_code)]
 
 #[derive(Debug)]
 #[repr(u8)]
@@ -10,6 +11,7 @@ pub enum PoWAlgo {
     None = 0,
     Sha256LeadingZero = 1,
 }
+#[allow(dead_code)]
 impl PoWAlgo {
     pub fn from_u8(byte: u8) -> Self {
         match byte {
@@ -27,6 +29,7 @@ pub struct PoWExt {
     nonce: u64,
 }
 
+#[allow(dead_code)]
 impl PoWExt {
     pub async fn new(header: &P2ProtHeader, difficulty: u8) -> Self {
         let timestamp = SystemTime::now()

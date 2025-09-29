@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::types::{ByteSerialize, Bytes};
+use crate::types::Bytes;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -76,14 +76,5 @@ impl Block {
             .as_millis();
         let time = timestamp2 - timestamp1;
         println!("Block mined at {timestamp2} in {time}ms: {}", self.hash);
-    }
-}
-
-impl ByteSerialize for Block {
-    fn to_bytes(&self) -> Bytes {
-        todo!()
-    }
-    fn from_bytes(bytes: Bytes) -> Self {
-        todo!()
     }
 }

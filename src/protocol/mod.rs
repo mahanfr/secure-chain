@@ -58,6 +58,7 @@ impl P2Protocol {
         Ok(buffer)
     }
 
+    #[allow(dead_code)]
     pub fn add_extention(&mut self, ext: HeaderExt) {
         // Inefficient but eh.. it is a small structure
         let config = bincode::config::standard();

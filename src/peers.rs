@@ -12,7 +12,7 @@ impl Peer {
         Self { addr, pk }
     }
 
-    pub fn to_string(self) -> String {
+    pub fn _to_string(self) -> String {
         format!("peer://{}@{}", self.pk, self.addr.to_string())
     }
 

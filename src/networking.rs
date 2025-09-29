@@ -27,7 +27,6 @@ use crate::{
 pub type PeerId = u64;
 pub type SharedPeers = Arc<Mutex<HashMap<PeerId, Peer>>>;
 pub type BootstapNodes = Vec<Peer>;
-pub static CONNECTION_LIMIT: u8 = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandShake {
@@ -77,6 +76,8 @@ pub enum PeerMessage {
     Pong,
 }
 
+#[allow(dead_code)]
+#[derive(Debug)]
 pub struct AppState {
     pub pk: PublicKey,
     pub addr: SocketAddr,
@@ -196,7 +197,7 @@ impl P2PNetwork {
     }
 
     async fn handle_incomming(
-        state: Arc<AppState>,
+        _state: Arc<AppState>,
         mut reader: BufReader<OwnedReadHalf>,
         sender: Arc<Sender<ClientCommand>>,
         addr: SocketAddr,
@@ -217,7 +218,6 @@ impl P2PNetwork {
                 }
             };
             // DO SOME CHECKS ON HEADER
-            println!("new conn header: {:?}",header);
             if header.content_type != ContentType::HandShake {
                 log_error!("Incomming message had no valid session id");
                 break;
@@ -416,14 +416,6 @@ impl P2PNetwork {
         Ok(())
     }
 
-    pub async fn broadcast(&self, message: PeerMessage) -> Result<()> {
-        let Some(tx) = &self.client_tx else {
-            anyhow::bail!("Broadcast channel is not ready yet!");
-        };
-        tx.send(ClientCommand::Broadcast(message)).await?;
-        Ok(())
-    }
-
     async fn connect_to_server(state: Arc<AppState>, client_tx: Arc<Sender<ClientCommand>>, addr: SocketAddr) -> Result<BufWriter<OwnedWriteHalf>> {
         let stream = TcpStream::connect(addr).await?;
         stream.set_nodelay(true)?;
@@ -443,4 +435,29 @@ impl P2PNetwork {
         });
         Ok(writer)
     }
+
+    pub async fn broadcast(&self, message: PeerMessage) -> Result<()> {
+        let Some(tx) = &self.client_tx else {
+            anyhow::bail!("Broadcast channel is not ready yet!");
+        };
+        tx.send(ClientCommand::Broadcast(message)).await?;
+        Ok(())
+    }
+
+    pub async fn ping(&self, peer_id: u64) -> Result<()> {
+        let Some(tx) = &self.client_tx else {
+            anyhow::bail!("Broadcast channel is not ready yet!");
+        };
+        tx.send(ClientCommand::Ping(peer_id)).await?;
+        Ok(())
+    }
+
+    pub async fn connect_to_peer(&self, peer: Peer) -> Result<()> {
+        let Some(tx) = &self.client_tx else {
+            anyhow::bail!("Broadcast channel is not ready yet!");
+        };
+        tx.send(ClientCommand::ConnectToPeer(peer)).await?;
+        Ok(())
+    }
+
 }
