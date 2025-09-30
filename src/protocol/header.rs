@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::networking::PeerMessage;
 
-#[derive(Debug, Serialize, Deserialize, IntoPrimitive, TryFromPrimitive, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Serialize, Deserialize, IntoPrimitive, TryFromPrimitive, Clone, Copy, PartialEq, Eq,
+)]
 #[serde(into = "u16", try_from = "u16")]
 #[repr(u16)]
 pub enum ContentType {
@@ -33,7 +35,7 @@ pub enum Flags {
     Partial = 0x1,
     Encryption = 0x2,
     ProofOfWork = 0x4,
-    RESERVED = 0x8,
+    Reserved = 0x8,
 }
 impl Flags {
     #[allow(dead_code)]

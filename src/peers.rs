@@ -13,7 +13,7 @@ impl Peer {
     }
 
     pub fn _to_string(self) -> String {
-        format!("peer://{}@{}", self.pk, self.addr.to_string())
+        format!("peer://{}@{}", self.pk, self.addr)
     }
 
     pub fn from_string(uri: String) -> Result<Self, PeerParseError> {

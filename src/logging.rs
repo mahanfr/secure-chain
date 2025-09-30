@@ -19,7 +19,7 @@ pub fn log_color(level: u8) -> colored::ColoredString {
 #[macro_export]
 macro_rules! log_info {
     ($($arg:tt)+) => {
-        println!("{} {}",crate::logging::log_color(0),format_args!($($arg)+))
+        println!("{} {}",$crate::logging::log_color(0),format_args!($($arg)+))
     };
 }
 
@@ -27,7 +27,7 @@ macro_rules! log_info {
 #[macro_export]
 macro_rules! log_success {
     ($($arg:tt)+) => {
-        println!("{} {}",crate::logging::log_color(1),format_args!($($arg)+))
+        println!("{} {}",$crate::logging::log_color(1),format_args!($($arg)+))
     };
 }
 
@@ -35,7 +35,7 @@ macro_rules! log_success {
 #[macro_export]
 macro_rules! log_warn {
     ($($arg:tt)+) => {
-        println!("{} {}",crate::logging::log_color(2),format_args!($($arg)+))
+        println!("{} {}",$crate::logging::log_color(2),format_args!($($arg)+))
     };
 }
 
@@ -43,6 +43,6 @@ macro_rules! log_warn {
 #[macro_export]
 macro_rules! log_error {
     ($($arg:tt)+) => {
-        eprintln!("{} {}",crate::logging::log_color(3),format_args!($($arg)+))
+        eprintln!("{} {}",$crate::logging::log_color(3),format_args!($($arg)+))
     };
 }

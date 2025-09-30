@@ -13,15 +13,29 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufReader, BufWriter},
-    net::{tcp::{OwnedReadHalf, OwnedWriteHalf}, TcpListener, TcpStream},
-    sync::{
-        mpsc::{self, Receiver, Sender}, Mutex, RwLock
+    net::{
+        TcpListener, TcpStream,
+        tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
+    sync::{
+        Mutex, RwLock,
+        mpsc::{self, Receiver, Sender},
+        watch,
+    },
+    task::JoinHandle,
 };
 
 use crate::{
-    block::Block, blockchain::Blockchain, errors::NetworkError, keys::PublicKey, log_error,
-    log_info, log_warn, peers::Peer, protocol::{header::{ContentType, P2ProtHeader}, P2Protocol},
+    block::Block,
+    blockchain::Blockchain,
+    errors::NetworkError,
+    keys::PublicKey,
+    log_error, log_info, log_warn,
+    peers::Peer,
+    protocol::{
+        P2Protocol,
+        header::{ContentType, P2ProtHeader},
+    },
 };
 
 pub type PeerId = u64;
@@ -36,7 +50,7 @@ pub struct HandShake {
 
 impl HandShake {
     pub fn new(pk: PublicKey, addr: SocketAddr) -> Self {
-        Self { pk, addr, }
+        Self { pk, addr }
     }
 }
 
@@ -55,9 +69,9 @@ impl HandShakeAck {
             addr,
             peer_id: rand::thread_rng().r#gen(),
             timestamp: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis(),
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
         }
     }
 }
@@ -100,11 +114,17 @@ pub enum ClientCommand {
     Broadcast(PeerMessage),
     Ping(PeerId),
     Pong(PeerId),
+    SendHandShakeAck(SocketAddr, HandShake),
     ConnectToPeer(Peer),
     NewServerConnection(SocketAddr, Arc<Mutex<BufWriter<OwnedWriteHalf>>>),
     NewClientConnection(SocketAddr, Arc<Mutex<BufWriter<OwnedWriteHalf>>>),
-    HandShakeAck(SocketAddr, HandShake),
-    EstablishedPeerConnection(SocketAddr, Peer, PeerId)
+    EstablishedPeerConnection(SocketAddr, Peer, PeerId),
+}
+
+#[derive(Debug)]
+pub struct ServerState {
+    server_handle: Option<JoinHandle<()>>,
+    stop_tx: Option<watch::Sender<bool>>,
 }
 
 #[derive(Debug)]
@@ -112,6 +132,7 @@ pub struct P2PNetwork {
     pub listen_addr: SocketAddr,
     pub bootstrap_nodes: Vec<Peer>,
     client_tx: Option<Arc<Sender<ClientCommand>>>,
+    server_state: Arc<Mutex<ServerState>>,
 }
 
 impl P2PNetwork {
@@ -121,6 +142,10 @@ impl P2PNetwork {
             listen_addr,
             bootstrap_nodes,
             client_tx: None,
+            server_state: Arc::new(Mutex::new(ServerState {
+                server_handle: None,
+                stop_tx: None,
+            })),
         }
     }
 
@@ -128,21 +153,53 @@ impl P2PNetwork {
         self.listen_addr = SocketAddr::from_str(&format!("0.0.0.0:{}", port)).unwrap();
     }
 
+    pub async fn start_server(&self, state: Arc<AppState>) -> Result<()> {
+        let mut s_state = self.server_state.lock().await;
+        if s_state.server_handle.is_some() {
+            anyhow::bail!("server is already running!");
+        }
+        let listener = TcpListener::bind(self.listen_addr).await?;
+        log_info!("P2P node listening on {}", self.listen_addr);
+
+        // stop channel
+        let (stop_tx, stop_rx) = watch::channel(false);
+        s_state.stop_tx = Some(stop_tx);
+
+        let state_cloned = state.clone();
+        let Some(tx_cloned) = self.client_tx.clone() else {
+            anyhow::bail!("client communication channel is not ready, please try again");
+        };
+        let server_handle = tokio::spawn(async move {
+            if let Err(e) =
+                Self::accept_connections(state_cloned, tx_cloned, listener, stop_rx).await
+            {
+                log_error!("Error accepting connection: {e}");
+            }
+        });
+        s_state.server_handle = Some(server_handle);
+        Ok(())
+    }
+
+    pub async fn stop_server(&self) -> Result<()> {
+        let mut s_state = self.server_state.lock().await;
+        if let Some(stop_tx) = &s_state.stop_tx {
+            stop_tx.send(true)?;
+        }
+        if let Some(handle) = s_state.server_handle.take() {
+            let _ = handle.await;
+        }
+        log_info!("server service is stopped");
+        Ok(())
+    }
+
     pub async fn start(&mut self, state: Arc<AppState>) -> Result<()> {
         let (client_tx, client_rx) = mpsc::channel(100);
         let tx = Arc::new(client_tx);
         self.client_tx = Some(tx.clone());
 
-        let listener = TcpListener::bind(self.listen_addr).await?;
-        log_info!("P2P node listening on {}", self.listen_addr);
-
-        let state_cloned = state.clone();
-        let tx_cloned = tx.clone();
-        tokio::spawn(async move {
-            if let Err(e) = Self::accept_connections(state_cloned, tx_cloned, listener).await {
-                log_error!("Error accepting connection: {e}");
-            }
-        });
+        if let Err(e) = self.start_server(state.clone()).await {
+            log_error!("Error starting server: {e}");
+        }
 
         let state_cloned = state.clone();
         let tx_cloned = tx.clone();
@@ -154,7 +211,10 @@ impl P2PNetwork {
 
         let state_cloned = state.clone();
         let tx_cloned = tx.clone();
-        if let Err(e) = self.connect_to_bootstrap_nodes(state_cloned, tx_cloned).await {
+        if let Err(e) = self
+            .connect_to_bootstrap_nodes(state_cloned, tx_cloned)
+            .await
+        {
             log_error!("Error Connecting to bootstrap nodes: {e}");
         }
 
@@ -165,35 +225,49 @@ impl P2PNetwork {
         state: Arc<AppState>,
         client_tx: Arc<Sender<ClientCommand>>,
         listener: TcpListener,
+        mut stop_rx: watch::Receiver<bool>,
     ) -> Result<()> {
         loop {
-            match listener.accept().await {
-                Ok((stream, addr)) => {
-                    log_info!("New connection from {addr}");
-
-                    let (r, w) = stream.into_split();
-                    let reader = BufReader::new(r);
-                    let writer = BufWriter::new(w);
-                    client_tx.send(ClientCommand::NewServerConnection(addr, Arc::new(Mutex::new(writer)))).await?;
-
-                    let state = state.clone();
-                    let client_tx = client_tx.clone();
-                    tokio::spawn(async move {
-                        match Self::handle_incomming(state, reader, client_tx, addr.clone()).await {
-                            Ok(_) => {
-                                log_warn!("Connection to {addr} closed!");
-                            },
-                            Err(e) => {
-                                log_error!("Error in handeling the connection: {e}");
-                            }
-                        }
-                    });
+            tokio::select! {
+                biased;
+                _ = stop_rx.changed() => {
+                    if *stop_rx.borrow() {
+                        log_info!("server stopping gracefully...");
+                        break;
+                    }
                 }
-                Err(e) => {
-                    log_error!("Error reciving the connection: {e}");
+
+                res = listener.accept() => {
+                    match res {
+                        Ok((stream, addr)) => {
+                            log_info!("New connection from {addr}");
+
+                            let (r, w) = stream.into_split();
+                            let reader = BufReader::new(r);
+                            let writer = BufWriter::new(w);
+                            client_tx.send(ClientCommand::NewServerConnection(addr, Arc::new(Mutex::new(writer)))).await?;
+
+                            let state = state.clone();
+                            let client_tx = client_tx.clone();
+                            tokio::spawn(async move {
+                                match Self::handle_incomming(state, reader, client_tx, addr).await {
+                                    Ok(_) => {
+                                        log_warn!("Connection to {addr} closed!");
+                                    },
+                                    Err(e) => {
+                                        log_error!("Error in handeling the connection: {e}");
+                                    }
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            log_error!("Error reciving the connection: {e}");
+                        }
+                    }
                 }
             }
         }
+        Ok(())
     }
 
     async fn handle_incomming(
@@ -202,7 +276,6 @@ impl P2PNetwork {
         sender: Arc<Sender<ClientCommand>>,
         addr: SocketAddr,
     ) -> Result<()> {
-
         let mut data: String = String::new();
         let mut header_buf = vec![0u8; 32];
         loop {
@@ -218,7 +291,7 @@ impl P2PNetwork {
                 }
             };
             // DO SOME CHECKS ON HEADER
-            if header.content_type != ContentType::HandShake {
+            if header.content_type != ContentType::HandShake && header.session_id == 0 {
                 log_error!("Incomming message had no valid session id");
                 break;
             }
@@ -228,26 +301,35 @@ impl P2PNetwork {
                 log_error!("Error reading the message: {e}");
                 break;
             }
-            println!("payload: {:?}",payload);
-            let (incoming_msg, _) : (PeerMessage, _) = 
+            let (incoming_msg, _): (PeerMessage, _) =
                 match bincode::serde::decode_from_slice(&payload, config::standard()) {
                     Ok(m) => m,
                     Err(e) => {
                         log_error!("Error Parsing the message: {e}");
                         break;
-                    },
-            };
+                    }
+                };
             match incoming_msg {
                 PeerMessage::Handshake(recv_hs) => {
                     log_info!("Handshake recived from {addr}");
-                    if let Err(e) = sender.send(ClientCommand::HandShakeAck(addr, recv_hs)).await {
+                    if let Err(e) = sender
+                        .send(ClientCommand::SendHandShakeAck(addr, recv_hs))
+                        .await
+                    {
                         log_error!("unable to communicate with client service: {e}");
                         break;
                     }
                 }
                 PeerMessage::HandshakeAck(recv_hs) => {
-                    let peer = Peer::new(recv_hs.addr.clone(), recv_hs.pk.clone()); 
-                    if let Err(e) = sender.send(ClientCommand::EstablishedPeerConnection(addr, peer, recv_hs.peer_id)).await {
+                    let peer = Peer::new(recv_hs.addr, recv_hs.pk.clone());
+                    if let Err(e) = sender
+                        .send(ClientCommand::EstablishedPeerConnection(
+                            addr,
+                            peer,
+                            recv_hs.peer_id,
+                        ))
+                        .await
+                    {
                         log_error!("unable to communicate with client service: {e}");
                         break;
                     }
@@ -273,7 +355,11 @@ impl P2PNetwork {
         Ok(())
     }
 
-    pub async fn connect_to_bootstrap_nodes(&self, state: Arc<AppState> ,client_tx: Arc<Sender<ClientCommand>>) -> Result<()> {
+    pub async fn connect_to_bootstrap_nodes(
+        &self,
+        state: Arc<AppState>,
+        client_tx: Arc<Sender<ClientCommand>>,
+    ) -> Result<()> {
         let nodes = self.bootstrap_nodes.clone();
         for node in nodes {
             if node.addr != self.listen_addr {
@@ -285,13 +371,20 @@ impl P2PNetwork {
                         if attempt > 3 {
                             break;
                         }
-                        match Self::connect_to_server(state.clone(), client_tx.clone(), node.addr).await {
+                        match Self::connect_to_server(state.clone(), client_tx.clone(), node.addr)
+                            .await
+                        {
                             Ok(w_buf) => {
-                                let _ = client_tx.send(ClientCommand::NewClientConnection(node.addr, Arc::new(Mutex::new(w_buf)))).await;
+                                let _ = client_tx
+                                    .send(ClientCommand::NewClientConnection(
+                                        node.addr,
+                                        Arc::new(Mutex::new(w_buf)),
+                                    ))
+                                    .await;
                                 break;
                             }
                             Err(e) => {
-                                log_warn!("Error connecting to bootstrap peer {}: {e}",node.addr);
+                                log_warn!("Error connecting to bootstrap peer {}: {e}", node.addr);
                                 attempt += 1;
                             }
                         }
@@ -302,24 +395,29 @@ impl P2PNetwork {
         Ok(())
     }
 
-
     async fn send(writer: Arc<Mutex<BufWriter<OwnedWriteHalf>>>, prot: &P2Protocol) -> Result<()> {
         writer.lock().await.write_all(&prot.serialize()?).await?;
         writer.lock().await.flush().await?;
         Ok(())
     }
 
-    async fn start_client(state: Arc<AppState>, client_tx: Arc<Sender<ClientCommand>> ,mut rx: Receiver<ClientCommand>) -> Result<()> {
+    async fn start_client(
+        state: Arc<AppState>,
+        client_tx: Arc<Sender<ClientCommand>>,
+        mut rx: Receiver<ClientCommand>,
+    ) -> Result<()> {
         let peers = state.peers.clone();
-        let mut connections: HashMap<PeerId, Arc<Mutex<BufWriter<OwnedWriteHalf>>>> = HashMap::new();
-        let mut queue_conn: HashMap<SocketAddr, Arc<Mutex<BufWriter<OwnedWriteHalf>>>>= HashMap::new();
+        let mut connections: HashMap<PeerId, Arc<Mutex<BufWriter<OwnedWriteHalf>>>> =
+            HashMap::new();
+        let mut queue_conn: HashMap<SocketAddr, Arc<Mutex<BufWriter<OwnedWriteHalf>>>> =
+            HashMap::new();
 
         let tx = client_tx.clone();
         while let Some(cmd) = rx.recv().await {
             match cmd {
                 ClientCommand::NewServerConnection(addr, writer) => {
                     queue_conn.insert(addr, writer);
-                },
+                }
                 ClientCommand::NewClientConnection(addr, writer) => {
                     let handshake = HandShake::new(state.pk.clone(), state.addr);
                     let prot = P2Protocol::new(&PeerMessage::Handshake(handshake));
@@ -334,21 +432,27 @@ impl P2PNetwork {
                         peers.lock().await.insert(peer_id, peer);
                         connections.insert(peer_id, writer);
                     }
-                },
-                ClientCommand::HandShakeAck(addr, hs) => {
+                }
+                ClientCommand::SendHandShakeAck(addr, hs) => {
                     let handshake_ack = HandShakeAck::new(state.pk.clone(), state.addr);
                     if let Some(writer) = queue_conn.remove(&addr) {
                         log_info!("sending handshake to {}", addr);
-                        let prot = P2Protocol::new(&PeerMessage::HandshakeAck(handshake_ack.clone()));
-                        if let Err(e) = 
-                            Self::send(writer.clone(), &prot).await {
+                        let prot =
+                            P2Protocol::new(&PeerMessage::HandshakeAck(handshake_ack.clone()));
+                        if let Err(e) = Self::send(writer.clone(), &prot).await {
                             log_error!("Can not send message to {addr}: {e}");
                         } else {
-                            peers.lock().await.insert(handshake_ack.peer_id, Peer { addr: addr.clone(), pk: hs.pk.clone() });
+                            peers.lock().await.insert(
+                                handshake_ack.peer_id,
+                                Peer {
+                                    addr,
+                                    pk: hs.pk.clone(),
+                                },
+                            );
                             connections.insert(handshake_ack.peer_id, writer);
                         }
                     }
-                },
+                }
                 ClientCommand::Pong(id) => {
                     if let Some(conn) = connections.get(&id) {
                         let prot = P2Protocol::new_with_peer(&PeerMessage::Pong, id);
@@ -358,7 +462,7 @@ impl P2PNetwork {
                     } else {
                         log_warn!("peer with id {id} not found!");
                     }
-                } 
+                }
                 ClientCommand::Ping(id) => {
                     if let Some(conn) = connections.get(&id) {
                         let prot = P2Protocol::new_with_peer(&PeerMessage::Ping, id);
@@ -376,11 +480,13 @@ impl P2PNetwork {
                             log_warn!("Failed to connect to {}: {e}", peer.addr);
                         }
                     }
-                },
+                }
                 ClientCommand::Broadcast(message) => {
                     for (pid, peer) in peers.lock().await.iter() {
                         if !connections.contains_key(pid) {
-                            match Self::connect_to_server(state.clone(), tx.clone(), peer.addr).await {
+                            match Self::connect_to_server(state.clone(), tx.clone(), peer.addr)
+                                .await
+                            {
                                 Ok(w_buf) => {
                                     connections.insert(*pid, Arc::new(Mutex::new(w_buf)));
                                 }
@@ -394,20 +500,20 @@ impl P2PNetwork {
                     let msg = format!("{s}\n");
 
                     let mut broken = Vec::new();
-                    for (pk, peer) in &connections {
+                    for (pid, peer) in &connections {
                         let mut gaurd = peer.lock().await;
                         if let Err(e) = gaurd.write_all(msg.as_bytes()).await {
-                            log_warn!("Failed to write to {pk:?}: {e}");
-                            broken.push(pk.clone());
+                            log_warn!("Failed to write to {pid:?}: {e}");
+                            broken.push(*pid);
                             continue;
                         }
                         if let Err(e) = gaurd.flush().await {
-                            log_warn!("Failed to flush to {pk:?}: {e}");
-                            broken.push(pk.clone());
+                            log_warn!("Failed to flush to {pid:?}: {e}");
+                            broken.push(*pid);
                         }
                     }
-                    for pk in broken {
-                        connections.remove(&pk);
+                    for pid in broken {
+                        connections.remove(&pid);
                     }
                 }
             }
@@ -416,7 +522,11 @@ impl P2PNetwork {
         Ok(())
     }
 
-    async fn connect_to_server(state: Arc<AppState>, client_tx: Arc<Sender<ClientCommand>>, addr: SocketAddr) -> Result<BufWriter<OwnedWriteHalf>> {
+    async fn connect_to_server(
+        state: Arc<AppState>,
+        client_tx: Arc<Sender<ClientCommand>>,
+        addr: SocketAddr,
+    ) -> Result<BufWriter<OwnedWriteHalf>> {
         let stream = TcpStream::connect(addr).await?;
         stream.set_nodelay(true)?;
         let (r, w) = stream.into_split();
@@ -424,10 +534,10 @@ impl P2PNetwork {
         let writer = BufWriter::new(w);
 
         tokio::spawn(async move {
-            match Self::handle_incomming(state, reader, client_tx ,addr.clone()).await {
+            match Self::handle_incomming(state, reader, client_tx, addr).await {
                 Ok(_) => {
                     log_warn!("Connection with {addr} closed");
-                },
+                }
                 Err(e) => {
                     log_error!("Error in handeling the connection: {e}");
                 }
@@ -459,5 +569,4 @@ impl P2PNetwork {
         tx.send(ClientCommand::ConnectToPeer(peer)).await?;
         Ok(())
     }
-
 }

@@ -4,7 +4,10 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     networking::PeerMessage,
-    protocol::{header::{ContentType, P2ProtHeader}, header_ext::HeaderExt},
+    protocol::{
+        header::{ContentType, P2ProtHeader},
+        header_ext::HeaderExt,
+    },
 };
 
 pub mod header;
@@ -20,8 +23,7 @@ pub struct P2Protocol {
 
 impl P2Protocol {
     pub fn new(message: &PeerMessage) -> Self {
-        let payload = 
-            bincode::serde::encode_to_vec(message, bincode::config::standard())
+        let payload = bincode::serde::encode_to_vec(message, bincode::config::standard())
             .expect("Internal Error: Parsing message");
         let mut header = P2ProtHeader::default();
         header.content_type = ContentType::from_message(message);
@@ -30,7 +32,9 @@ impl P2Protocol {
         hasher.update(&payload);
         let hash = hasher.finalize();
         let checksum = u32::from_le_bytes(
-            hash[0..4].try_into().expect("Internal Error: Parsing message")
+            hash[0..4]
+                .try_into()
+                .expect("Internal Error: Parsing message"),
         );
         header.checksum = checksum;
         Self {

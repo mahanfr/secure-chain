@@ -1,6 +1,4 @@
-use crate::{
-    block::Block,
-};
+use crate::block::Block;
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -32,4 +30,3 @@ impl Blockchain {
         self.blocks.last().cloned()
     }
 }
-

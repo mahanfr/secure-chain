@@ -26,8 +26,8 @@ mod peers;
 mod protocol;
 mod types;
 
-static HISTORY_FOLDER: &'static str = "./data/.history";
-static SHELL_HISTORY_LOC: &'static str = "./data/.history/shell.txt";
+static HISTORY_FOLDER: &str = "./data/.history";
+static SHELL_HISTORY_LOC: &str = "./data/.history/shell.txt";
 
 fn generate_files_if_needed() -> Result<()> {
     match fs::create_dir(HISTORY_FOLDER) {
@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
 
     // TODO: Read from file
     let chain = Blockchain::new();
-    let state = AppState::new(pk.clone(), network.listen_addr,chain);
+    let state = AppState::new(pk.clone(), network.listen_addr, chain);
     network.start(state.clone()).await?;
 
     let network_arc = Arc::new(network);

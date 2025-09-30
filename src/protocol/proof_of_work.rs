@@ -4,7 +4,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::protocol::header::P2ProtHeader;
 #[allow(dead_code)]
-
 #[derive(Debug)]
 #[repr(u8)]
 pub enum PoWAlgo {
@@ -71,13 +70,8 @@ impl PoWExt {
                 if self_diff < self.difficulty {
                     true
                 } else {
-                    if Self::gen_hash(packet_header, &self.timestamp, &self.nonce)
+                    Self::gen_hash(packet_header, &self.timestamp, &self.nonce)
                         .starts_with(&b"0".repeat(self.difficulty as usize))
-                    {
-                        true
-                    } else {
-                        false
-                    }
                 }
             }
             _ => false,
