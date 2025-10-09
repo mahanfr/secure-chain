@@ -26,16 +26,9 @@ use tokio::{
 };
 
 use crate::{
-    block::Block,
-    blockchain::Blockchain,
-    errors::NetworkError,
-    keys::PublicKey,
-    log_error, log_info, log_warn,
-    peers::Peer,
-    protocol::{
-        P2Protocol,
-        header::{ContentType, P2ProtHeader},
-    },
+    block::Block, blockchain::Blockchain, errors::NetworkError, keys::PublicKey, peers::Peer, protocol::{
+        header::{ContentType, P2ProtHeader}, P2Protocol
+    }
 };
 
 pub type PeerId = u64;
@@ -159,7 +152,7 @@ impl P2PNetwork {
             anyhow::bail!("server is already running!");
         }
         let listener = TcpListener::bind(self.listen_addr).await?;
-        log_info!("P2P node listening on {}", self.listen_addr);
+        tracing::info!(addr = %self.listen_addr, "P2P node listening");
 
         // stop channel
         let (stop_tx, stop_rx) = watch::channel(false);
@@ -173,7 +166,7 @@ impl P2PNetwork {
             if let Err(e) =
                 Self::accept_connections(state_cloned, tx_cloned, listener, stop_rx).await
             {
-                log_error!("Error accepting connection: {e}");
+                tracing::error!(error = ?e, "Error Accepting Connection");
             }
         });
         s_state.server_handle = Some(server_handle);
@@ -188,7 +181,7 @@ impl P2PNetwork {
         if let Some(handle) = s_state.server_handle.take() {
             let _ = handle.await;
         }
-        log_info!("server service is stopped");
+        tracing::info!("server service is stopped");
         Ok(())
     }
 
@@ -198,14 +191,14 @@ impl P2PNetwork {
         self.client_tx = Some(tx.clone());
 
         if let Err(e) = self.start_server(state.clone()).await {
-            log_error!("Error starting server: {e}");
+            tracing::error!(error = ?e, "Error Starting The Server");
         }
 
         let state_cloned = state.clone();
         let tx_cloned = tx.clone();
         tokio::spawn(async move {
             if let Err(e) = Self::start_client(state_cloned, tx_cloned, client_rx).await {
-                log_error!("Error connecting to peers: {e}");
+                tracing::error!(error = ?e, "Error Connecting to Peers");
             }
         });
 
@@ -215,7 +208,7 @@ impl P2PNetwork {
             .connect_to_bootstrap_nodes(state_cloned, tx_cloned)
             .await
         {
-            log_error!("Error Connecting to bootstrap nodes: {e}");
+            tracing::error!(error = ?e, "Error Connecting to bootstrap nodes");
         }
 
         Ok(())
@@ -232,7 +225,7 @@ impl P2PNetwork {
                 biased;
                 _ = stop_rx.changed() => {
                     if *stop_rx.borrow() {
-                        log_info!("server stopping gracefully...");
+                        tracing::info!("server stopping gracefully...");
                         break;
                     }
                 }
@@ -240,7 +233,7 @@ impl P2PNetwork {
                 res = listener.accept() => {
                     match res {
                         Ok((stream, addr)) => {
-                            log_info!("New connection from {addr}");
+                            tracing::info!(addr = %addr, "New connection");
 
                             let (r, w) = stream.into_split();
                             let reader = BufReader::new(r);
@@ -252,16 +245,16 @@ impl P2PNetwork {
                             tokio::spawn(async move {
                                 match Self::handle_incomming(state, reader, client_tx, addr).await {
                                     Ok(_) => {
-                                        log_warn!("Connection to {addr} closed!");
+                                        tracing::warn!(addr = %addr, "Connection Closed");
                                     },
                                     Err(e) => {
-                                        log_error!("Error in handeling the connection: {e}");
+                                        tracing::error!(addr = %addr, error = ?e ,"Error in handeling the connection");
                                     }
                                 }
                             });
                         }
                         Err(e) => {
-                            log_error!("Error reciving the connection: {e}");
+                            tracing::error!(error = ?e ,"Error reciving the connection");
                         }
                     }
                 }
@@ -280,43 +273,43 @@ impl P2PNetwork {
         let mut header_buf = vec![0u8; 32];
         loop {
             if let Err(e) = reader.read_exact(&mut header_buf).await {
-                log_error!("Connection closed or error: {e}");
+                tracing::error!(error = ?e ,"Connection closed");
                 break;
             }
             let header = match P2ProtHeader::from_bytes(&header_buf) {
                 Ok(h) => h,
                 Err(e) => {
-                    log_error!("Error parsing the header: {e}");
+                    tracing::error!(error = ?e ,"Error parsing the header");
                     break;
                 }
             };
             // DO SOME CHECKS ON HEADER
             if header.content_type != ContentType::HandShake && header.session_id == 0 {
-                log_error!("Incomming message had no valid session id");
+                tracing::error!("Incomming message had no valid session id");
                 break;
             }
             // DO SOME CHECKS ON HEADER
             let mut payload = vec![0u8; header.size];
             if let Err(e) = reader.read_exact(&mut payload).await {
-                log_error!("Error reading the message: {e}");
+                tracing::error!(error = ?e ,"Error reading the message");
                 break;
             }
             let (incoming_msg, _): (PeerMessage, _) =
                 match bincode::serde::decode_from_slice(&payload, config::standard()) {
                     Ok(m) => m,
                     Err(e) => {
-                        log_error!("Error Parsing the message: {e}");
+                        tracing::error!(error = ?e ,"Error parsing the message");
                         break;
                     }
                 };
             match incoming_msg {
                 PeerMessage::Handshake(recv_hs) => {
-                    log_info!("Handshake recived from {addr}");
+                    tracing::info!(addr = %addr, "Handshake recived");
                     if let Err(e) = sender
                         .send(ClientCommand::SendHandShakeAck(addr, recv_hs))
                         .await
                     {
-                        log_error!("unable to communicate with client service: {e}");
+                        tracing::error!(error = ?e ,"Unable to communicate with client service");
                         break;
                     }
                 }
@@ -330,22 +323,22 @@ impl P2PNetwork {
                         ))
                         .await
                     {
-                        log_error!("unable to communicate with client service: {e}");
+                        tracing::error!(error = ?e ,"Unable to communicate with client service");
                         break;
                     }
                 }
                 PeerMessage::Ping => {
-                    log_info!("Ping recived from {addr}");
+                    tracing::info!(addr = %addr, "Ping Recived");
                     if let Err(e) = sender.send(ClientCommand::Pong(header.session_id)).await {
-                        log_error!("unable to communicate with client service: {e}");
+                        tracing::error!(error = ?e ,"Unable to communicate with client service");
                         break;
                     }
                 }
                 PeerMessage::Pong => {
-                    log_info!("Pong recived from {addr}");
+                    tracing::info!(addr = %addr, "Pong Recived");
                 }
                 PeerMessage::Error(e) => {
-                    log_warn!("Error recived from {addr}: {e}");
+                    tracing::error!(addr = %addr, error = ?e ,"Error recived");
                 }
                 _ => (),
             }
@@ -384,7 +377,7 @@ impl P2PNetwork {
                                 break;
                             }
                             Err(e) => {
-                                log_warn!("Error connecting to bootstrap peer {}: {e}", node.addr);
+                                tracing::warn!(addr = %node.addr ,error = ?e,"Error connecting to bootstrap peer");
                                 attempt += 1;
                             }
                         }
@@ -422,7 +415,7 @@ impl P2PNetwork {
                     let handshake = HandShake::new(state.pk.clone(), state.addr);
                     let prot = P2Protocol::new(&PeerMessage::Handshake(handshake));
                     if let Err(e) = Self::send(writer.clone(), &prot).await {
-                        log_error!("Can not send message to {addr}: {e}");
+                        tracing::error!(addr = %addr ,error = ?e,"Can not send message");
                     } else {
                         queue_conn.insert(addr, writer);
                     }
@@ -436,11 +429,11 @@ impl P2PNetwork {
                 ClientCommand::SendHandShakeAck(addr, hs) => {
                     let handshake_ack = HandShakeAck::new(state.pk.clone(), state.addr);
                     if let Some(writer) = queue_conn.remove(&addr) {
-                        log_info!("sending handshake to {}", addr);
+                        tracing::info!(addr = %addr, "Can not send message");
                         let prot =
                             P2Protocol::new(&PeerMessage::HandshakeAck(handshake_ack.clone()));
                         if let Err(e) = Self::send(writer.clone(), &prot).await {
-                            log_error!("Can not send message to {addr}: {e}");
+                            tracing::error!(addr = %addr, error = ?e, "Can not send message");
                         } else {
                             peers.lock().await.insert(
                                 handshake_ack.peer_id,
@@ -457,17 +450,17 @@ impl P2PNetwork {
                     if let Some(conn) = connections.get(&id) {
                         let prot = P2Protocol::new_with_peer(&PeerMessage::Pong, id);
                         if let Err(e) = Self::send(conn.clone(), &prot).await {
-                            log_info!("failed sending pong to {id}:{e}");
+                            tracing::error!(id = %id, error = ?e, "Failed sending pong");
                         }
                     } else {
-                        log_warn!("peer with id {id} not found!");
+                        tracing::warn!(id = %id, "Peer not found!");
                     }
                 }
                 ClientCommand::Ping(id) => {
                     if let Some(conn) = connections.get(&id) {
                         let prot = P2Protocol::new_with_peer(&PeerMessage::Ping, id);
                         if let Err(e) = Self::send(conn.clone(), &prot).await {
-                            log_info!("failed sending ping to {id}:{e}");
+                            tracing::error!(id = %id, error = ?e, "Failed sending ping");
                         }
                     }
                 }
@@ -477,48 +470,14 @@ impl P2PNetwork {
                             queue_conn.insert(peer.addr, Arc::new(Mutex::new(w_buf)));
                         }
                         Err(e) => {
-                            log_warn!("Failed to connect to {}: {e}", peer.addr);
+                            tracing::error!(addr = %peer.addr, error = ?e, "Failed to connect");
                         }
                     }
                 }
-                ClientCommand::Broadcast(message) => {
-                    for (pid, peer) in peers.lock().await.iter() {
-                        if !connections.contains_key(pid) {
-                            match Self::connect_to_server(state.clone(), tx.clone(), peer.addr)
-                                .await
-                            {
-                                Ok(w_buf) => {
-                                    connections.insert(*pid, Arc::new(Mutex::new(w_buf)));
-                                }
-                                Err(e) => {
-                                    log_warn!("Failed to connect to {pid:?}@{}: {e}", peer.addr);
-                                }
-                            }
-                        }
-                    }
-                    let s = serde_json::to_string(&message)?;
-                    let msg = format!("{s}\n");
-
-                    let mut broken = Vec::new();
-                    for (pid, peer) in &connections {
-                        let mut gaurd = peer.lock().await;
-                        if let Err(e) = gaurd.write_all(msg.as_bytes()).await {
-                            log_warn!("Failed to write to {pid:?}: {e}");
-                            broken.push(*pid);
-                            continue;
-                        }
-                        if let Err(e) = gaurd.flush().await {
-                            log_warn!("Failed to flush to {pid:?}: {e}");
-                            broken.push(*pid);
-                        }
-                    }
-                    for pid in broken {
-                        connections.remove(&pid);
-                    }
-                }
+                ClientCommand::Broadcast(_message) => {}
             }
         }
-        log_warn!("client task ended: channel closed");
+        tracing::warn!("client task ended: channel closed");
         Ok(())
     }
 
@@ -536,10 +495,10 @@ impl P2PNetwork {
         tokio::spawn(async move {
             match Self::handle_incomming(state, reader, client_tx, addr).await {
                 Ok(_) => {
-                    log_warn!("Connection with {addr} closed");
+                    tracing::warn!(addr = %addr, "Connection closed");
                 }
                 Err(e) => {
-                    log_error!("Error in handeling the connection: {e}");
+                    tracing::error!(error = ?e, "Error in handeling the connection");
                 }
             }
         });
