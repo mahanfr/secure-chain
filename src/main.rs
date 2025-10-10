@@ -13,6 +13,7 @@ use crate::{
     peers::bootstap_peers,
 };
 use anyhow::Result;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod block;
@@ -31,6 +32,14 @@ static HISTORY_FOLDER: &str = "./data/.history";
 static SHELL_HISTORY_LOC: &str = "./data/.history/shell.txt";
 
 fn generate_files_if_needed() -> Result<()> {
+    match fs::create_dir("./data") {
+        Ok(_) => (),
+        Err(e) => {
+            if e.kind() != io::ErrorKind::AlreadyExists {
+                panic!("Cannot Create Folder: {}", e);
+            }
+        }
+    }
     match fs::create_dir(HISTORY_FOLDER) {
         Ok(()) => {
             let _ = fs::File::create(SHELL_HISTORY_LOC);
@@ -45,15 +54,28 @@ fn generate_files_if_needed() -> Result<()> {
     Ok(())
 }
 
+fn init_tracing() {
+    let file_appender = RollingFileAppender::new(Rotation::DAILY, "data/logs", "app.log");
+    let file_layer = fmt::layer()
+        .with_ansi(false)
+        .with_writer(file_appender);
+
+    let console_layer = fmt::layer()
+        .with_target(true)
+        .with_ansi(true);
+
+    let subscriber = tracing_subscriber::registry()
+        .with(EnvFilter::from_default_env())
+        .with(console_layer)
+        .with(file_layer);
+
+    subscriber.try_init().ok();
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::init();
-
-    tracing_subscriber::registry()
-        .with(fmt::layer().with_target(true))
-        .with(EnvFilter::from_default_env())
-        .try_init().ok();
-
+    dotenv::dotenv().ok();
+    init_tracing();
     generate_files_if_needed().unwrap();
     let args: Vec<String> = std::env::args().collect();
 

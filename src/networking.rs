@@ -272,8 +272,8 @@ impl P2PNetwork {
         let mut data: String = String::new();
         let mut header_buf = vec![0u8; 32];
         loop {
-            if let Err(e) = reader.read_exact(&mut header_buf).await {
-                tracing::error!(error = ?e ,"Connection closed");
+            if let Err(_) = reader.read_exact(&mut header_buf).await {
+                tracing::warn!(addr = %addr, "Connection closed");
                 break;
             }
             let header = match P2ProtHeader::from_bytes(&header_buf) {

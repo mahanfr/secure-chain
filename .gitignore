@@ -2,3 +2,5 @@
 /.history
 */**/.history
 /.history/**/*
+/logs
+*/**/logs
