@@ -13,7 +13,7 @@ use crate::{
 #[derive(Debug)]
 enum CliCommand {
     List,
-    Ping(u64),
+    Ping(u128),
     ConnectTo(Peer),
     StartServer,
     StopServer,
@@ -153,7 +153,7 @@ impl Cli {
                                             continue;
                                         } else {
                                             let peers = self.state.peers.lock().await;
-                                            let peer_ids: Vec<&u64> = peers
+                                            let peer_ids: Vec<&u128> = peers
                                                 .keys()
                                                 .filter(|k| k.to_string().starts_with(s))
                                                 .collect();

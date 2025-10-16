@@ -1,11 +1,11 @@
 use std::fmt::Display;
 
-use serde::{Deserialize, Serialize};
+use bincode::{Decode, Encode};
 use uuid::Uuid;
 
 use crate::errors::PeerParseError;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Encode, Decode, Hash, PartialEq, Eq)]
 pub struct PublicKey(String);
 
 impl PublicKey {
@@ -22,6 +22,10 @@ impl PublicKey {
         }
         Ok(Self(pk))
     }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.0.as_bytes().to_vec()
+    } 
 }
 
 impl Display for PublicKey {

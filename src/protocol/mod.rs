@@ -23,7 +23,7 @@ pub struct P2Protocol {
 
 impl P2Protocol {
     pub fn new(message: &PeerMessage) -> Self {
-        let payload = bincode::serde::encode_to_vec(message, bincode::config::standard())
+        let payload = bincode::encode_to_vec(message, bincode::config::standard())
             .expect("Internal Error: Parsing message");
         let mut header = P2ProtHeader::default();
         header.content_type = ContentType::from_message(message);
@@ -44,7 +44,7 @@ impl P2Protocol {
         }
     }
 
-    pub fn new_with_peer(message: &PeerMessage, peer_id: u64) -> Self {
+    pub fn new_with_peer(message: &PeerMessage, peer_id: u128) -> Self {
         let mut prot = P2Protocol::new(message);
         prot.header.session_id = peer_id;
         prot

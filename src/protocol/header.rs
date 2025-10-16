@@ -66,15 +66,16 @@ pub struct P2ProtHeader {
     pub checksum: u32,
     // offset: 16 len: 8
     pub size: usize,
-    // offset: 24 len: 8
-    pub session_id: u64,
+    // offset: 24 len: 16
+    pub session_id: u128,
+    // offset: 40
 }
 
 impl P2ProtHeader {
     pub fn from_bytes(slice: &[u8]) -> Result<Self> {
         let (header, n): (Self, usize) =
             bincode::serde::decode_from_slice(slice, config::standard().with_fixed_int_encoding())?;
-        if n != 32 {
+        if n != 40 {
             anyhow::bail!("invalid header size")
         }
         Ok(header)

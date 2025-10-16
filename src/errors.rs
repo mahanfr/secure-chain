@@ -1,6 +1,6 @@
 use core::fmt;
 
-use serde::{Deserialize, Serialize};
+use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PeerParseError {
@@ -27,7 +27,7 @@ impl fmt::Display for PeerParseError {
 
 impl std::error::Error for PeerParseError {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub enum NetworkError {
     HandshakeRequired,
     NoSessionId,

@@ -1,11 +1,12 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::types::Bytes;
+use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct Block {
     pub id: String,
     pub data: Bytes,

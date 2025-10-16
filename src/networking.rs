@@ -1,4 +1,3 @@
-use core::str;
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -8,9 +7,8 @@ use std::{
 };
 
 use anyhow::Result;
-use bincode::config;
+use bincode::{config, Decode, Encode};
 use rand::Rng;
-use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufReader, BufWriter},
     net::{
@@ -26,16 +24,16 @@ use tokio::{
 };
 
 use crate::{
-    block::Block, blockchain::Blockchain, errors::NetworkError, keys::PublicKey, peers::Peer, protocol::{
+    block::Block, blockchain::Blockchain, errors::NetworkError, keys::PublicKey, peers::{Peer, PeerOptions}, protocol::{
         header::{ContentType, P2ProtHeader}, P2Protocol
     }
 };
 
-pub type PeerId = u64;
+pub type PeerId = u128;
 pub type SharedPeers = Arc<Mutex<HashMap<PeerId, Peer>>>;
 pub type BootstapNodes = Vec<Peer>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct HandShake {
     pub pk: PublicKey,
     pub addr: SocketAddr,
@@ -47,10 +45,9 @@ impl HandShake {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct HandShakeAck {
     pub pk: PublicKey,
-    pub peer_id: u64,
     pub timestamp: u128,
     pub addr: SocketAddr,
 }
@@ -60,7 +57,6 @@ impl HandShakeAck {
         Self {
             pk,
             addr,
-            peer_id: rand::thread_rng().r#gen(),
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -69,9 +65,10 @@ impl HandShakeAck {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Encode, Decode)]
 #[repr(u16)]
 pub enum PeerMessage {
+    Gossip(Vec<Peer>),
     Handshake(HandShake),
     HandshakeAck(HandShakeAck),
     GetBlockByHash(String),
@@ -111,7 +108,7 @@ pub enum ClientCommand {
     ConnectToPeer(Peer),
     NewServerConnection(SocketAddr, Arc<Mutex<BufWriter<OwnedWriteHalf>>>),
     NewClientConnection(SocketAddr, Arc<Mutex<BufWriter<OwnedWriteHalf>>>),
-    EstablishedPeerConnection(SocketAddr, Peer, PeerId),
+    EstablishedPeerConnection(SocketAddr, Peer),
 }
 
 #[derive(Debug)]
@@ -264,13 +261,13 @@ impl P2PNetwork {
     }
 
     async fn handle_incomming(
-        _state: Arc<AppState>,
+        state: Arc<AppState>,
         mut reader: BufReader<OwnedReadHalf>,
         sender: Arc<Sender<ClientCommand>>,
         addr: SocketAddr,
     ) -> Result<()> {
         let mut data: String = String::new();
-        let mut header_buf = vec![0u8; 32];
+        let mut header_buf = vec![0u8; 40];
         loop {
             if let Err(_) = reader.read_exact(&mut header_buf).await {
                 tracing::warn!(addr = %addr, "Connection closed");
@@ -295,7 +292,7 @@ impl P2PNetwork {
                 break;
             }
             let (incoming_msg, _): (PeerMessage, _) =
-                match bincode::serde::decode_from_slice(&payload, config::standard()) {
+                match bincode::decode_from_slice(&payload, config::standard()) {
                     Ok(m) => m,
                     Err(e) => {
                         tracing::error!(error = ?e ,"Error parsing the message");
@@ -303,6 +300,8 @@ impl P2PNetwork {
                     }
                 };
             match incoming_msg {
+                PeerMessage::Gossip(goss) => {
+                }
                 PeerMessage::Handshake(recv_hs) => {
                     tracing::info!(addr = %addr, "Handshake recived");
                     if let Err(e) = sender
@@ -319,7 +318,6 @@ impl P2PNetwork {
                         .send(ClientCommand::EstablishedPeerConnection(
                             addr,
                             peer,
-                            recv_hs.peer_id,
                         ))
                         .await
                     {
@@ -420,10 +418,14 @@ impl P2PNetwork {
                         queue_conn.insert(addr, writer);
                     }
                 }
-                ClientCommand::EstablishedPeerConnection(addr, peer, peer_id) => {
-                    if let Some(writer) = queue_conn.remove(&addr) {
-                        peers.lock().await.insert(peer_id, peer);
-                        connections.insert(peer_id, writer);
+                ClientCommand::EstablishedPeerConnection(addr, peer) => {
+                    if let Ok(peer_id) = peer.derive_unique_id() {
+                        if let Some(writer) = queue_conn.remove(&addr) {
+                            peers.lock().await.insert(peer_id, peer);
+                            connections.insert(peer_id, writer);
+                        }
+                    } else {
+                        tracing::error!("Failed to drive peer id");
                     }
                 }
                 ClientCommand::SendHandShakeAck(addr, hs) => {
@@ -435,14 +437,13 @@ impl P2PNetwork {
                         if let Err(e) = Self::send(writer.clone(), &prot).await {
                             tracing::error!(addr = %addr, error = ?e, "Can not send message");
                         } else {
-                            peers.lock().await.insert(
-                                handshake_ack.peer_id,
-                                Peer {
-                                    addr,
-                                    pk: hs.pk.clone(),
-                                },
-                            );
-                            connections.insert(handshake_ack.peer_id, writer);
+                            let peer = Peer::new(addr, hs.pk.clone());
+                            if let Ok(peer_id) = peer.derive_unique_id() {
+                                peers.lock().await.insert(peer_id, peer);
+                                connections.insert(peer_id, writer);
+                            } else {
+                                tracing::error!(addr = %addr, "Can not derive PeerID");
+                            }
                         }
                     }
                 }
@@ -513,7 +514,7 @@ impl P2PNetwork {
         Ok(())
     }
 
-    pub async fn ping(&self, peer_id: u64) -> Result<()> {
+    pub async fn ping(&self, peer_id: u128) -> Result<()> {
         let Some(tx) = &self.client_tx else {
             anyhow::bail!("Broadcast channel is not ready yet!");
         };
